@@ -111,3 +111,6 @@ C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\obj\Debug\net8.0\refin
 C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\obj\Debug\net8.0\NexusEngine.Api.pdb
 C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\obj\Debug\net8.0\NexusEngine.Api.genruntimeconfig.cache
 C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\obj\Debug\net8.0\ref\NexusEngine.Api.dll
+C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\bin\Debug\net8.0\MediatR.dll
+C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\bin\Debug\net8.0\MediatR.Contracts.dll
+C:\Users\DELL\Desktop\Epicode\Nexus-Engine\backend-csharp\obj\Debug\net8.0\NexusEngine.Api.sourcelink.json

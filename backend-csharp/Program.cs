@@ -28,6 +28,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Infrastructure.Persistence;
+using NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +37,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddMediatR(cfg => 
+    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly)
+       .RegisterServicesFromAssemblyContaining<CreateAccountHandler>());
 
 builder.Services.AddDbContext<NexusDbContext>(options =>
 {
