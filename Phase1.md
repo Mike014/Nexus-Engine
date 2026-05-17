@@ -41,25 +41,6 @@ The architecture imposes a strict operational divide between write-side actions 
 ### Atomic Dual-Write Projections
 For Phases 1–3, consistency takes precedence. Events and their corresponding read-model projections are committed within the **same database transaction**. This guarantees immediate read-model alignment (Strong Consistency) with an intentional, well-documented overhead of two database operations per write.
 
-
-```text
-
-[HTTP Client] ──> [Controller] ──> [MediatR / Command]
-│
-▼
-[Command Handler]
-│
-┌────────────────┴────────────────┐
-▼                                 ▼
-(Append Immutable Event)            (Update Current State)
-[Table: domain_events]              [Table: accounts/orders]
-│                                 │
-└───────────────┬─────────────────┘
-▼
-[PostgreSQL Transaction]
-(Commit Atomic / All-or-Nothing)
-```
-
 ---
 
 ## 3. Domain Model & Dependency Rules
