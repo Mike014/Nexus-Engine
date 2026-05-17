@@ -8,27 +8,27 @@
 //
 // INFRASTRUCTURE DOCUMENTATION:
 // - Dependency Injection Configuration:
-//   Registers 'NexusDbContext' into the IoC container. By default, it applies a 'Scoped'
-//   lifetime—instantiating exactly one isolated session context per inbound HTTP request.
-//   This isolates data persistence workflows across unique operational worker contexts.
+//   Registers 'NexusDbContext' into the IoC container with Scoped lifetime --
+//   one isolated session per inbound HTTP request.
 // - Configuration Resolution:
-//   Resolves connection strings dynamically. In local development environments, it falls 
-//   back to 'appsettings.Development.json'. In Docker container environments, it overrides via 
-//   the environment variable 'ConnectionStrings__DefaultConnection' (double underscore matching hierarchy).
+//   Resolves connection string dynamically. Falls back to appsettings.Development.json
+//   locally, overridden by env var 'ConnectionStrings__DefaultConnection' in Docker.
+//   Throws InvalidOperationException at startup if the connection string is missing --
+//   fail-fast prevents cryptic runtime errors later.
 // - Npgsql Resiliency Policy:
-//   Appends '.EnableRetryOnFailure()' behavior with a maximum cap of 5 retries spaced up to 
-//   10 seconds apart. This guards against transient network drops and prevents startup crashes 
-//   in Docker compositions where the API application initializes faster than the database engine instance.
+//   EnableRetryOnFailure with 5 retries / 10s max delay. Guards against transient
+//   network drops and Docker cold-start race conditions.
+// - MediatR Registration:
+//   Single assembly registration -- all Handlers in the same project are discovered
+//   automatically. Double registration removed (caused duplicate DI entries).
 // - Database Migration Startup Policy:
-//   Initializes an explicit IoC scope block upon runtime startup to apply pending migrations
-//   automatically via 'db.Database.Migrate()'. This approach is highly practical for single-instance
-//   deployments (per ADR-003) to ensure immediate structural schema synchronization.
+//   Applies pending migrations via MigrateAsync() at startup inside an explicit scope.
+//   Wrapped in try/catch -- startup failure is logged explicitly instead of crashing
+//   with a cryptic unhandled exception. Correct for single-instance deployments (ADR-003).
 // ============================================================================
 
-using System;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Infrastructure.Persistence;
-using NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,33 +38,53 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddMediatR(cfg => 
-    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly)
-       .RegisterServicesFromAssemblyContaining<CreateAccountHandler>());
+// Fix #3 -- rimossa doppia registrazione MediatR sullo stesso assembly.
+builder.Services.AddMediatR(cfg =>
+    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+
+// Fix #4 -- null-check esplicito sulla connection string.
+// Se la variabile d'ambiente non e' configurata, il sistema fallisce
+// immediatamente con un messaggio chiaro invece di crashare piu' tardi
+// con un errore criptico di connessione.
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException(
+        "Connection string 'DefaultConnection' not configured. " +
+        "Set the environment variable 'ConnectionStrings__DefaultConnection'.");
 
 builder.Services.AddDbContext<NexusDbContext>(options =>
 {
-    options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        npgsqlOptions =>
-        {
-            npgsqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(10),
-                errorCodesToAdd: null
-            );
-        }
-    );
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: null
+        );
+    });
 });
 
 var app = builder.Build();
 
-// --- Startup Execution Initialization Layer ---
+// --- Startup Migration Layer ---
 
+// Fix #10 -- MigrateAsync invece di Migrate, wrappato in try/catch.
+// Se la migration fallisce, il processo si arresta con un messaggio
+// esplicito invece di propagare un'eccezione non gestita.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NexusDbContext>();
-    db.Database.Migrate();
+    try
+    {
+        await db.Database.MigrateAsync();
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider
+            .GetRequiredService<ILogger<Program>>();
+        logger.LogCritical(ex,
+            "Database migration failed at startup. Application cannot start.");
+        throw;
+    }
 }
 
 // --- HTTP Request Middleware Pipeline Layer ---

@@ -8,8 +8,8 @@
 //
 // CLASS DOCUMENTATION:
 // - AccountsController: Thin HTTP routing boundary. Contains zero business logic.
-//   Responsibilities: parse HTTP request, build Command or Query, dispatch via MediatR,
-//   translate result to HTTP response.
+//   Responsibilities: parse HTTP request, validate input, build Command or Query,
+//   dispatch via MediatR, translate result to HTTP response.
 // - CreateAccountRequest: Public HTTP request DTO. Isolates the external API contract
 //   from the internal CreateAccountCommand. Serialization changes do not leak downstream.
 // - DepositFundsRequest: Public HTTP request DTO for deposit operations.
@@ -18,13 +18,17 @@
 // MEMBER DOCUMENTATION:
 // - _mediator: Injected IMediator. Single dependency -- decouples Controller from
 //   all Handler implementations.
-// - CreateAccount: POST /api/accounts. Builds CreateAccountCommand, dispatches via MediatR.
-//   Returns HTTP 201 Created with Location header pointing to the new resource.
+// - CreateAccount: POST /api/accounts. Validates OwnerName and Currency before
+//   dispatching CreateAccountCommand. Returns HTTP 201 Created with Location header,
+//   400 BadRequest on invalid input, 500 on unexpected database error.
 // - GetAccount: GET /api/accounts/{id}. Builds GetAccountQuery, dispatches via MediatR.
 //   Returns HTTP 200 OK with AccountDto, or HTTP 404 NotFound if account does not exist.
-// - DepositFunds: POST /api/accounts/{id}/deposit. Builds DepositFundsCommand, dispatches
-//   via MediatR. Returns HTTP 204 NoContent on success, 400 BadRequest if amount is
-//   invalid or account is not Active, 404 NotFound if account does not exist.
+// - DepositFunds: POST /api/accounts/{id}/deposit. Validates amount > 0, dispatches
+//   DepositFundsCommand. Returns HTTP 204 NoContent on success, 400 on invalid input
+//   or inactive account, 404 if not found, 409 Conflict on concurrent modification.
+// - ReplayAccount: GET /api/accounts/{id}/replay. Reconstructs Account state
+//   exclusively from domain_events. Never reads from the accounts projection.
+//   Returns ReplayAccountDto with EventsReplayed count, or HTTP 404 if not found.
 // ============================================================================
 
 namespace NexusEngine.Api.Controllers;
@@ -34,6 +38,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
 using NexusEngine.Api.Application.Accounts.Commands.DepositFunds;
 using NexusEngine.Api.Application.Accounts.Queries.GetAccount;
@@ -55,18 +61,30 @@ public class AccountsController : ControllerBase
         [FromBody] CreateAccountRequest request,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.OwnerName))
+            return BadRequest("OwnerName is required.");
+
+        if (string.IsNullOrWhiteSpace(request.Currency) || request.Currency.Length != 3)
+            return BadRequest("Currency must be a valid 3-character ISO 4217 code.");
+
         var command = new CreateAccountCommand(
-            request.OwnerName,
-            request.Currency
+            request.OwnerName.Trim(),
+            request.Currency.ToUpperInvariant()
         );
 
-        var accountId = await _mediator.Send(command, cancellationToken);
-
-        return CreatedAtAction(
-            nameof(GetAccount),
-            new { id = accountId },
-            new { id = accountId }
-        );
+        try
+        {
+            var accountId = await _mediator.Send(command, cancellationToken);
+            return CreatedAtAction(
+                nameof(GetAccount),
+                new { id = accountId },
+                new { id = accountId }
+            );
+        }
+        catch (DbUpdateException)
+        {
+            return StatusCode(500, "A database error occurred while creating the account.");
+        }
     }
 
     [HttpGet("{id:guid}")]
@@ -106,14 +124,19 @@ public class AccountsController : ControllerBase
         {
             return BadRequest(ex.Message);
         }
+        catch (DbUpdateException ex)
+            when (ex.InnerException is PostgresException pg && pg.SqlState == "23505")
+        {
+            return Conflict("Concurrent modification detected. Please retry.");
+        }
 
         return NoContent();
     }
 
     [HttpGet("{id:guid}/replay")]
     public async Task<IActionResult> ReplayAccount(
-    Guid id,
-    CancellationToken cancellationToken)
+        Guid id,
+        CancellationToken cancellationToken)
     {
         var query = new ReplayAccountQuery(id);
         var result = await _mediator.Send(query, cancellationToken);

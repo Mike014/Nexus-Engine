@@ -55,27 +55,51 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
 
         foreach (var evt in events)
         {
-            switch (evt.EventType)
+            try
             {
-                case "AccountCreated":
-                    var created = JsonSerializer.Deserialize<AccountCreatedPayload>(
-                        evt.Payload,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                    )!;
-                    state.Id        = evt.AggregateId;
-                    state.OwnerName = created.OwnerName;
-                    state.Currency  = created.Currency;
-                    state.Balance   = created.InitialBalance;
-                    state.Status    = "Active";
-                    break;
+                switch (evt.EventType)
+                {
+                    case "AccountCreated":
+                        var created = JsonSerializer.Deserialize<AccountCreatedPayload>(
+                            evt.Payload,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                        )!;
+                        state.Id = evt.AggregateId;
+                        state.OwnerName = created.OwnerName;
+                        state.Currency = created.Currency;
+                        state.Balance = created.InitialBalance;
+                        state.Status = "Active";
+                        break;
 
-                case "FundsDeposited":
-                    var deposited = JsonSerializer.Deserialize<FundsDepositedPayload>(
-                        evt.Payload,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                    )!;
-                    state.Balance = deposited.BalanceAfter;
-                    break;
+                    case "FundsDeposited":
+                        var deposited = JsonSerializer.Deserialize<FundsDepositedPayload>(
+                            evt.Payload,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                        )!;
+                        state.Balance = deposited.BalanceAfter;
+                        break;
+
+                    // Fix #7 -- evento sconosciuto: mai ignorare silenziosamente.
+                    // Se un nuovo EventType viene aggiunto al sistema senza aggiornare
+                    // il replay handler, lo stato ricostruito sarebbe silenziosamente
+                    // errato. Meglio fallire esplicitamente.
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unknown event type '{evt.EventType}' " +
+                            $"in aggregate {evt.AggregateId} " +
+                            $"at version {evt.AggregateVersion}. " +
+                            "Update the replay handler to support this event.");
+                }
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                // Fix #6 -- payload corrotto: fallisce con messaggio diagnostico
+                // invece di HTTP 500 criptico. Il Controller traduce
+                // InvalidOperationException in HTTP 400.
+                throw new InvalidOperationException(
+                    $"Event {evt.Id} (type={evt.EventType}, " +
+                    $"version={evt.AggregateVersion}) " +
+                    $"has malformed payload and cannot be replayed.", ex);
             }
 
             state.LastEventVersion = evt.AggregateVersion;
@@ -94,17 +118,17 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
 
     private class AccountState
     {
-        public Guid    Id               { get; set; }
-        public string  OwnerName        { get; set; } = string.Empty;
-        public decimal Balance           { get; set; }
-        public string  Currency         { get; set; } = string.Empty;
-        public string  Status           { get; set; } = string.Empty;
-        public int     LastEventVersion { get; set; }
+        public Guid Id { get; set; }
+        public string OwnerName { get; set; } = string.Empty;
+        public decimal Balance { get; set; }
+        public string Currency { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public int LastEventVersion { get; set; }
     }
 
     private record AccountCreatedPayload(
-        string  OwnerName,
-        string  Currency,
+        string OwnerName,
+        string Currency,
         decimal InitialBalance
     );
 

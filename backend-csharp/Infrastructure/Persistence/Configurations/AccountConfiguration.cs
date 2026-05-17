@@ -74,5 +74,15 @@ public class AccountConfiguration : IEntityTypeConfiguration<Account>
         builder.Property(a => a.UpdatedAt)
             .HasColumnName("updated_at")
             .IsRequired();
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint(
+                "ck_accounts_balance_non_negative",
+                "balance >= 0");
+            t.HasCheckConstraint(
+                "ck_accounts_reserved_balance_non_negative",
+                "reserved_balance >= 0");
+        });
     }
 }
