@@ -4,22 +4,22 @@
 // Layer: Presentation.Controllers
 //
 // FILE DESCRIPTION:
-// Exposes HTTP REST endpoints for the routing and lifecycle orchestration of Accounts.
+// Exposes HTTP REST endpoints for Account lifecycle management.
 //
-// ARCHITECTURAL DOCUMENTATION:
-// - Thin Controller Architecture (CQRS/MediatR):
-//   Acts strictly as an infrastructure routing boundary. The controller contains 
-//   zero domain validation or execution mechanics. Its sole responsibility is parsing 
-//   the inbound HTTP network envelope, mapping the parameters to a dispatchable command,
-//   and handing execution off asynchronously to the MediatR mediator pipeline.
-// - Request DTO Separation Contract:
-//   Isolates the external public HTTP contract ('CreateAccountRequest') from internal
-//   application messages ('CreateAccountCommand'). This ensures serialization changes or 
-//   API version updates do not leak downstream or break internal core domain models.
-// - REST Compliance Mechanics:
-//   Returns a standard semantic '201 Created' response code via 'CreatedAtAction'. It supplies 
-//   the calling client with an immediate operational resource path header ('Location') 
-//   referencing the corresponding query route.
+// CLASS DOCUMENTATION:
+// - AccountsController: Thin HTTP routing boundary. Contains zero business logic.
+//   Responsibilities: parse HTTP request, build Command or Query, dispatch via MediatR,
+//   translate result to HTTP response.
+// - CreateAccountRequest: Public HTTP request DTO. Isolates the external API contract
+//   from the internal CreateAccountCommand. Serialization changes do not leak downstream.
+//
+// MEMBER DOCUMENTATION:
+// - _mediator: Injected IMediator. Single dependency -- decouples Controller from
+//   all Handler implementations.
+// - CreateAccount: POST /api/accounts. Builds CreateAccountCommand, dispatches via MediatR.
+//   Returns HTTP 201 Created with Location header pointing to the new resource.
+// - GetAccount: GET /api/accounts/{id}. Builds GetAccountQuery, dispatches via MediatR.
+//   Returns HTTP 200 OK with AccountDto, or HTTP 404 NotFound if account does not exist.
 // ============================================================================
 
 namespace NexusEngine.Api.Controllers;
@@ -30,6 +30,7 @@ using System.Threading.Tasks;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
+using NexusEngine.Api.Application.Accounts.Queries.GetAccount;
 
 [ApiController]
 [Route("api/accounts")]
@@ -62,9 +63,17 @@ public class AccountsController : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
-    public IActionResult GetAccount(Guid id)
+    public async Task<IActionResult> GetAccount(
+        Guid id,
+        CancellationToken cancellationToken)
     {
-        return Ok();
+        var query = new GetAccountQuery(id);
+        var account = await _mediator.Send(query, cancellationToken);
+
+        if (account is null)
+            return NotFound();
+
+        return Ok(account);
     }
 }
 
