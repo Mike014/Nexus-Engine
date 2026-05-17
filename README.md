@@ -93,30 +93,6 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 
 ---
 
-## Project Structure
-
-```
-nexus-engine/
-├── backend-csharp/          # ASP.NET Core 8 backend (schema master)
-│   ├── Domain/
-│   │   └── Entities/        # DomainEvent, Account, Order, Transaction, IdempotencyKey
-│   ├── Application/
-│   │   └── Accounts/
-│   │       ├── Commands/    # CreateAccount, DepositFunds
-│   │       └── Queries/     # GetAccount, ReplayAccount
-│   ├── Infrastructure/
-│   │   └── Persistence/
-│   │       ├── Configurations/   # EF Core Fluent API mappings
-│   │       └── Migrations/       # Database migrations (source of truth)
-│   └── Controllers/         # Thin HTTP routing layer
-├── backend-java/            # Spring Boot 3.5 backend (schema slave)
-│   └── src/
-├── frontend/                # React + TypeScript dashboard
-└── docker-compose.yml       # Orchestration with csharp/java profiles
-```
-
----
-
 ## Getting Started
 
 ### Prerequisites
@@ -128,7 +104,7 @@ nexus-engine/
 
 ```bash
 git clone https://github.com/Mike014/Nexus-Engine-.git
-cd Nexus-Engine-
+cd Nexus-Engine
 docker compose --profile csharp up --build
 ```
 
