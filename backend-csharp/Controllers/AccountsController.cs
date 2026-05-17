@@ -12,6 +12,8 @@
 //   translate result to HTTP response.
 // - CreateAccountRequest: Public HTTP request DTO. Isolates the external API contract
 //   from the internal CreateAccountCommand. Serialization changes do not leak downstream.
+// - DepositFundsRequest: Public HTTP request DTO for deposit operations.
+//   Isolates the external amount field from the internal DepositFundsCommand.
 //
 // MEMBER DOCUMENTATION:
 // - _mediator: Injected IMediator. Single dependency -- decouples Controller from
@@ -20,6 +22,9 @@
 //   Returns HTTP 201 Created with Location header pointing to the new resource.
 // - GetAccount: GET /api/accounts/{id}. Builds GetAccountQuery, dispatches via MediatR.
 //   Returns HTTP 200 OK with AccountDto, or HTTP 404 NotFound if account does not exist.
+// - DepositFunds: POST /api/accounts/{id}/deposit. Builds DepositFundsCommand, dispatches
+//   via MediatR. Returns HTTP 204 NoContent on success, 400 BadRequest if amount is
+//   invalid or account is not Active, 404 NotFound if account does not exist.
 // ============================================================================
 
 namespace NexusEngine.Api.Controllers;
@@ -30,6 +35,7 @@ using System.Threading.Tasks;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
+using NexusEngine.Api.Application.Accounts.Commands.DepositFunds;
 using NexusEngine.Api.Application.Accounts.Queries.GetAccount;
 
 [ApiController]
@@ -75,9 +81,38 @@ public class AccountsController : ControllerBase
 
         return Ok(account);
     }
+
+    [HttpPost("{id:guid}/deposit")]
+    public async Task<IActionResult> DepositFunds(
+        Guid id,
+        [FromBody] DepositFundsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Amount <= 0)
+            return BadRequest("Amount must be positive.");
+
+        var command = new DepositFundsCommand(id, request.Amount);
+
+        try
+        {
+            await _mediator.Send(command, cancellationToken);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        return NoContent();
+    }
 }
 
 public record CreateAccountRequest(
     string OwnerName,
     string Currency
 );
+
+public record DepositFundsRequest(decimal Amount);
