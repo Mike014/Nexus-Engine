@@ -1,5 +1,14 @@
 # Nexus Engine
 
+<div align="center">
+  <img src="assets/images/logo.jpg" alt="Nexus Engine"
+            alt="Nexus Engine" 
+            width="50%" 
+            style="max-width: 1100px; border-radius: 12px;">
+</div>
+
+<br>
+
 A simulated order/betting engine built to demonstrate production-grade backend engineering skills relevant to iGaming and Fintech companies.
 
 Nexus Engine is not a commercial product. It is a technical portfolio project that showcases mastery of transactional systems, concurrency, real-time communication, and configurable business rules — implemented twice, in C# and Java, sharing the same database and frontend.
