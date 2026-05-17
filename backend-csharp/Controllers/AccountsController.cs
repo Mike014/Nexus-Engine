@@ -37,6 +37,7 @@ using Microsoft.AspNetCore.Mvc;
 using NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
 using NexusEngine.Api.Application.Accounts.Commands.DepositFunds;
 using NexusEngine.Api.Application.Accounts.Queries.GetAccount;
+using NexusEngine.Api.Application.Accounts.Queries.ReplayAccount;
 
 [ApiController]
 [Route("api/accounts")]
@@ -107,6 +108,20 @@ public class AccountsController : ControllerBase
         }
 
         return NoContent();
+    }
+
+    [HttpGet("{id:guid}/replay")]
+    public async Task<IActionResult> ReplayAccount(
+    Guid id,
+    CancellationToken cancellationToken)
+    {
+        var query = new ReplayAccountQuery(id);
+        var result = await _mediator.Send(query, cancellationToken);
+
+        if (result is null)
+            return NotFound();
+
+        return Ok(result);
     }
 }
 
