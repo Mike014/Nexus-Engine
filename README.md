@@ -1,65 +1,231 @@
-## 1. Architettura Core e Gestione Dati
+# Nexus Engine
 
-Il sistema si basa su un'architettura **Event Sourcing** con pattern **CQRS** (separazione tra modello di scrittura e lettura), implementata in modo speculare su due stack tecnologici.
+A simulated order/betting engine built to demonstrate production-grade backend engineering skills relevant to iGaming and Fintech companies.
 
-* **Dual-Backend Speculare (C# / Java):** Due implementazioni indipendenti e intercambiabili (ASP.NET Core 8 e Spring Boot 3.5) che condividono lo stesso storage transazionale. Lo switching tra i backend è gestito tramite profili Docker Compose.
-* **Event Store (Write Model):** La tabella `domain_events` su PostgreSQL funge da *Sorgente di Verità* append-only. Ogni mutazione è un evento immutabile. Lo stato corrente di un aggregato (es. `Account`) viene ricostruito in memoria riapplicando la cronologia dei suoi eventi.
-* **Tabelle di Proiezione (Read Model):** Tabelle relazionali (`accounts`, `orders`, `transactions`) ottimizzate per le letture. Nelle Fasi 1-3, l'aggiornamento avviene in modo **sincrono** nella stessa transazione PostgreSQL dell'evento (Forte Consistenza), garantendo il riallineamento immediato del read model al costo di una doppia operazione di scrittura.
-* **Allineamento Schema:** C# (EF Core) è il *Master* delle migrazioni. Java si limita a validare lo schema all'avvio (`ddl-auto=validate`), con sincronizzazione garantita dalla CI pipeline.
+Nexus Engine is not a commercial product. It is a technical portfolio project that showcases mastery of transactional systems, concurrency, real-time communication, and configurable business rules — implemented twice, in C# and Java, sharing the same database and frontend.
 
 ---
 
-## 2. Struttura del Monorepo e Infrastruttura DevOps
+## What This Project Demonstrates
 
-Il progetto è organizzato come un **Monorepo** per centralizzare i servizi e automatizzare l'ambiente di sviluppo locale.
+- **Event Sourcing** — every state change is recorded as an immutable domain event. The event store is the source of truth. Current state is a projection derived from events.
+- **CQRS** — strict separation between write operations (Commands) and read operations (Queries) via MediatR (.NET) and manual pattern implementation (Java).
+- **Concurrency control** — progressive strategy: Pessimistic Locking (Phase 2) migrated to Optimistic Locking (Phase 3), documented as a conscious engineering decision.
+- **Atomic dual-write** — domain event and read-side projection written in the same database transaction. No inconsistent state possible.
+- **Event replay** — any aggregate's state can be reconstructed at any point in time by replaying its event stream.
+- **Configurable business rules** — validation rules (limits, odds, fees) are externalized, not hardcoded.
+- **Real-time updates** — WebSocket push notifications via SignalR (C#) and STOMP (Java).
+- **Polyglot architecture** — two independent backend implementations sharing the same PostgreSQL schema and React frontend, demonstrating language-agnostic system design.
 
-### Mappatura della Soluzione
+---
 
-```text
-nexus-engine/
-├── backend-csharp/     # ASP.NET Core 8, Swashbuckle (Swagger)
-├── backend-java/       # Spring Boot 3.5.14, JPA, Java 21
-├── frontend/           # React + TypeScript, Vite, Nginx
-├── docker-compose.yml  # Orchestrazione locale con profili per backend
-├── Makefile            # Shortcut mnemonici per comandi Docker complessi
-└── global.json         # Blocco dell'SDK .NET 8 per consistenza ambientale
+## Architecture
 
 ```
+┌─────────────────────────────────────────────────────┐
+│                   React Frontend                    │
+│              (TypeScript + Vite + nginx)            │
+└──────────────────────┬──────────────────────────────┘
+                       │ HTTP + WebSocket
+          ┌────────────┴────────────┐
+          │                         │
+┌─────────▼──────────┐   ┌──────────▼─────────┐
+│   Backend C#        │   │   Backend Java      │
+│   ASP.NET Core 8    │   │   Spring Boot 3.5   │
+│   MediatR + EF Core │   │   Spring Data JPA   │
+│   SignalR           │   │   STOMP WebSocket   │
+└─────────┬──────────┘   └──────────┬──────────┘
+          │                         │
+          └────────────┬────────────┘
+                       │
+              ┌────────▼────────┐
+              │   PostgreSQL 16  │
+              │                 │
+              │  domain_events  │  ← source of truth (append-only)
+              │  accounts       │  ← read-side projection
+              │  orders         │  ← read-side projection
+              │  transactions   │  ← read-side projection
+              │  idempotency_keys│
+              └─────────────────┘
+```
 
-### Componenti Infrastrutturali
-
-* **Dockerfile dedicati:** Implementano build *multi-stage* per generare immagini di runtime minimali e isolate.
-* **Docker Compose:** Configura le reti virtuali interne e mappa le porte, permettendo l'avvio dell'intero ecosistema con un solo comando grazie ai profili.
-* **Nginx (`nginx.conf`):** Serve i file statici del frontend React e funge da *Reverse Proxy*, smistando le richieste HTTP verso il backend attivo (C# o Java) e risolvendo i problemi di CORS.
-* **Makefile:** Semplifica la CLI di progetto (es. `make up` o `make build`) evitando la digitazione di stringhe Docker chilometriche.
+> **Architectural constraint (ADR-003):** only one backend runs at a time. The order book lives in-memory inside the backend process. Running both backends simultaneously would produce divergent in-memory state. Switch between backends using Docker Compose profiles.
 
 ---
 
-## 3. Principi di Domain-Driven Design (DDD) e Persistenza
+## Tech Stack
 
-L'applicazione segue rigorosamente la **Dependency Rule**: le dipendenze puntano esclusivamente verso l'interno (il Domain è isolato e non conosce l'Infrastructure).
+### Backend C# (Master)
+- ASP.NET Core 8 Web API
+- Entity Framework Core 8 + Npgsql
+- MediatR 12 (CQRS)
+- SignalR (real-time WebSocket)
+- Swashbuckle (Swagger UI)
 
-* **Domain:** Contiene le regole di business e i vincoli finanziari. È scritto in C# puro, senza riferimenti a ORM o database.
-* **Entities:** Oggetti definiti da un'identità univoca persistente nel tempo (UUID), come `Account`, `Order` e `Transaction`. Si distinguono dai *Value Objects* che non hanno ID.
-* **Configurations (`IEntityTypeConfiguration<T>`):** Classi nello strato *Infrastructure* che istruiscono EF Core su come mappare esplicitamente le entità del dominio sul database tramite Fluent API. Evitano le convenzioni automatiche per implementare ottimizzazioni avanzate e mantengono il dominio pulito. Vengono caricate automaticamente nel `DbContext` tramite Reflection.
+### Backend Java (Slave)
+- Spring Boot 3.5
+- Spring Data JPA + Hibernate 6
+- Spring WebSocket (STOMP)
+- Maven
+
+### Database
+- PostgreSQL 16
+- Schema owned by C# (EF Core Migrations)
+- Java uses `ddl-auto=validate` — Hibernate validates but never modifies schema
+
+### Frontend
+- React 18 + TypeScript
+- Vite 8
+- nginx (production serving)
+
+### Infrastructure
+- Docker + Docker Compose (profiles for backend switching)
+- GitHub Actions (CI pipeline with boot tests)
 
 ---
 
-## 4. Scelte Tecniche Rilevanti e Problemi Risolti
+## Project Structure
 
-### Decisioni di Ingegnerizzazione del Software
+```
+nexus-engine/
+├── backend-csharp/          # ASP.NET Core 8 backend (schema master)
+│   ├── Domain/
+│   │   └── Entities/        # DomainEvent, Account, Order, Transaction, IdempotencyKey
+│   ├── Application/
+│   │   └── Accounts/
+│   │       ├── Commands/    # CreateAccount, DepositFunds
+│   │       └── Queries/     # GetAccount, ReplayAccount
+│   ├── Infrastructure/
+│   │   └── Persistence/
+│   │       ├── Configurations/   # EF Core Fluent API mappings
+│   │       └── Migrations/       # Database migrations (source of truth)
+│   └── Controllers/         # Thin HTTP routing layer
+├── backend-java/            # Spring Boot 3.5 backend (schema slave)
+│   └── src/
+├── frontend/                # React + TypeScript dashboard
+└── docker-compose.yml       # Orchestration with csharp/java profiles
+```
 
-| Elemento | Scelta Tecnica | Motivazione Architetturale |
-| --- | --- | --- |
-| **Valori Monetari** | `NUMERIC(18,2)` | Evitare tassativamente gli errori di arrotondamento dei tipi `float` o `double` in contesti finanziari. |
-| **Payload/Response** | `JSONB` (PostgreSQL) | Permette l'indicizzazione e la compressione nativa, risultando più efficiente del testo generico. |
-| **Concorrenza** | `UNIQUE(aggregate_id, aggregate_version)` | Meccanismo di *Optimistic Locking* sull'Event Store: impedisce a scritture concorrenti di sovrascrivere lo stesso stato. |
-| **Integrità Referenziale** | `onDelete: Restrict` | Divieto assoluto di cancellazione a cascata sui record finanziari. |
-| **Performance Java** | `open-in-view=false` | Rilascio immediato della connessione al database dopo lo strato transazionale. |
+---
 
-### Risoluzione Anomalie in Fase di Setup
+## Getting Started
 
-* **Allineamento SDK:** Bloccato l'ambiente C# a .NET 8 tramite `global.json` per sovrascrivere eventuali SDK locali .NET 10 instabili.
-* **Discrepanze API:** Rimosso il pacchetto nativo OpenAPI di .NET 8 non compatibile ed esteso l'uso di Swashbuckle per la generazione di Swagger.
-* **Corruzione file:** Riscritto manualmente `nginx.conf` a causa di problemi di encoding generati da PowerShell.
-* **Stabilità DB:** Introdotto un `start_period: 10s` nell'healthcheck di PostgreSQL per evitare il crash dei servizi dipendenti durante il cold start del database.
+### Prerequisites
+
+- Docker Desktop (WSL2 backend on Windows)
+- Git
+
+### Run with C# backend
+
+```bash
+git clone https://github.com/Mike014/Nexus-Engine-.git
+cd Nexus-Engine-
+docker compose --profile csharp up --build
+```
+
+### Run with Java backend
+
+```bash
+docker compose --profile java up --build
+```
+
+### Switch between backends
+
+```bash
+# Stop current backend
+docker compose --profile csharp down
+
+# Start the other
+docker compose --profile java up --build
+```
+
+### Available endpoints (C# backend)
+
+```
+POST   /api/accounts              Create a new account
+GET    /api/accounts/{id}         Get current account state (from projection)
+POST   /api/accounts/{id}/deposit Deposit funds
+GET    /api/accounts/{id}/replay  Reconstruct account state from event stream
+GET    /swagger                   Swagger UI
+```
+
+---
+
+## Architectural Decisions
+
+### ADR-001: Event Sourcing as persistence strategy
+The event store (`domain_events`) is the source of truth. Current state (`accounts`, `orders`) is a read-side projection derived from events. This makes audit trails intrinsic, enables point-in-time replay, and eliminates the need for a separate audit table.
+
+### ADR-002: Progressive concurrency strategy
+- **Phase 2:** Pessimistic Locking (`SELECT FOR UPDATE`) — simple, correct, serializes operations on the same account.
+- **Phase 3:** Migration to Optimistic Locking (version column on aggregates) — documented refactoring demonstrating awareness of trade-offs between throughput and correctness guarantees.
+
+### ADR-003: Single active backend
+Both backends share the same PostgreSQL database. The in-memory order book cannot be shared between processes without a coordination layer (Redis, etc.). One backend is active at a time. Switch via Docker Compose profiles.
+
+### ADR-004: Synchronous projections (Phases 1–3)
+Read-side projections are updated in the same database transaction as the domain event write. Strong consistency, no lag between write and read model. Async projection (outbox pattern / LISTEN-NOTIFY) is documented as a future evolution.
+
+### ADR-005: C# as schema master, Java as slave
+EF Core Migrations own the schema. Hibernate runs in `validate` mode — it validates entity mappings against the existing schema but never modifies it. Schema drift is caught early via CI boot tests.
+
+---
+
+## Development Roadmap
+
+### Phase 1 — Foundation ✅
+- Project setup (C# + Java + React)
+- Docker Compose with backend profiles
+- Database schema: Event Store + projections
+- Account CRUD with Event Sourcing
+- Event replay endpoint
+
+### Phase 2 — Transactional Engine 🔄
+- Place order endpoint
+- Validation with Strategy Pattern
+- Atomic balance updates via events
+- Pessimistic Locking (`SELECT FOR UPDATE`)
+- Request idempotency (idempotency key)
+
+### Phase 3 — Order Book and Matching
+- Buy/sell matching engine (price-time priority, in-memory)
+- Partial order fills
+- Order lifecycle: Pending → PartiallyFilled → Filled / Cancelled
+- Migration: Pessimistic → Optimistic Locking
+- Order book recovery on restart
+
+### Phase 4 — Real-time
+- SignalR push (C#) / STOMP WebSocket (Java)
+- Live order book, balance updates, trade feed
+- React dashboard with live data
+
+### Phase 5 — Observability and Polish
+- Structured logging (Serilog / Logback)
+- Health checks
+- Architecture diagrams and ADR documentation
+- Event replay demonstration
+- Metrics (Prometheus + Grafana, optional)
+
+---
+
+## Domain Model (iGaming / Fintech)
+
+Nexus Engine models a betting exchange (inspired by Betfair) and a financial trading platform (inspired by LMAX):
+
+- **Back = Buy** — "I bet €10 that X wins at odds 3.0"
+- **Lay = Sell** — "I offer the counterpart at odds 3.0"
+- **Price-time priority matching** — orders matched by best price first, FIFO at equal price
+- **Partial fills** — an order can be partially matched, remainder stays in the book
+- **Configurable commission** — exchange fee on net winnings, never on stake
+
+---
+
+## References
+
+- [LMAX Architecture](https://martinfowler.com/articles/lmax.html) — Martin Fowler
+- [Betfair Exchange API](https://developer.betfair.com) — domain model reference
+- [Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) — Martin Fowler
+- [CQRS](https://martinfowler.com/bliki/CQRS.html) — Martin Fowler
+
+---
+
