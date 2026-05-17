@@ -13,7 +13,7 @@ A simulated order/betting engine built to demonstrate production-grade backend e
 
 Nexus Engine is not a commercial product. It is a technical portfolio project that showcases mastery of transactional systems, concurrency, real-time communication, and configurable business rules — implemented twice, in C# and Java, sharing the same database and frontend.
 
-### **Documentation"*
+### **Documentation**
 - [Nexus Engine](https://docs.google.com/document/d/1_g5yustt4jpWbeg5F9ApeEEyxlwxWvcyzC5pAtTxDK4/edit?tab=t.0#heading=h.cfhcybw6q3iy)
 - [Phase1](https://github.com/Mike014/Nexus-Engine/blob/main/Phase1.md)
 ---
