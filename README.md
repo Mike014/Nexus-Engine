@@ -15,6 +15,7 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 
 ### **Documentation**
 - [Nexus Engine](https://docs.google.com/document/d/1_g5yustt4jpWbeg5F9ApeEEyxlwxWvcyzC5pAtTxDK4/edit?tab=t.0#heading=h.cfhcybw6q3iy)
+- [Network Architecture and Types (LAN & Infrastructure)](https://docs.google.com/document/d/1UEUlb57QonA9WqvT7gJie-Xfa9JTI5mgUw0x3dwKTYE/edit?tab=t.0#heading=h.8f3dvsb1xdnq)
 - [Phase1](https://github.com/Mike014/Nexus-Engine/blob/main/Phase1.md)
 ---
 
