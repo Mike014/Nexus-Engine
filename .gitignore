@@ -1,0 +1,169 @@
+# ==============================================================================
+# .gitignore -- Nexus Engine Monorepo
+# Covers: ASP.NET Core 8, Spring Boot 3, React + Vite, Docker
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# SECTION 1: .NET / C# (backend-csharp)
+# ------------------------------------------------------------------------------
+
+# Build output
+backend-csharp/bin/
+backend-csharp/obj/
+
+# User-specific Visual Studio files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Rider
+.idea/
+
+# NuGet
+backend-csharp/*.nupkg
+backend-csharp/packages/
+backend-csharp/.nuget/
+
+# dotnet tools manifest (keep if present, but ignore restore output)
+backend-csharp/.config/
+
+# Publish output
+backend-csharp/publish/
+
+# Entity Framework migrations snapshot backup (keep Migrations folder, ignore snapshots temp)
+# Note: Infrastructure/Migrations/ should be tracked
+
+# Environment-specific settings (never commit secrets)
+backend-csharp/appsettings.Development.json
+backend-csharp/appsettings.Local.json
+
+# ------------------------------------------------------------------------------
+# SECTION 2: Java / Spring Boot (backend-java)
+# ------------------------------------------------------------------------------
+
+# Maven build output
+backend-java/target/
+
+# Maven wrapper cache
+backend-java/.mvn/wrapper/maven-wrapper.jar
+
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java
+.mtj.tmp/
+
+# Package Files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Rider / IntelliJ
+backend-java/.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Spring Boot devtools
+backend-java/.spring-boot-devtools.properties
+
+# Environment-specific settings
+backend-java/src/main/resources/application-local.properties
+backend-java/src/main/resources/application-dev.properties
+
+# ------------------------------------------------------------------------------
+# SECTION 3: Node / React + Vite (frontend)
+# ------------------------------------------------------------------------------
+
+# Dependencies
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# Vite cache
+frontend/.vite/
+
+# Environment files (never commit secrets)
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# TypeScript build info
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# ------------------------------------------------------------------------------
+# SECTION 4: Docker
+# ------------------------------------------------------------------------------
+
+# Docker override files (local overrides only)
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ------------------------------------------------------------------------------
+# SECTION 5: OS e Editor generici
+# ------------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+
+# JetBrains Rider (root level)
+.idea/
+*.sln.iml
+
+# ------------------------------------------------------------------------------
+# SECTION 6: Secrets e file sensibili (mai committare)
+# ------------------------------------------------------------------------------
+
+# Variabili d'ambiente
+.env
+.env.*
+!.env.example
+
+# Certificati
+*.pem
+*.key
+*.cert
+*.pfx
+*.p12
+
+# ------------------------------------------------------------------------------
+# SECTION 7: Logs e dati temporanei
+# ------------------------------------------------------------------------------
+
+*.log
+logs/
+tmp/
+temp/
