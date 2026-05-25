@@ -13,7 +13,7 @@
 //   This is the foundational Event Sourcing replay mechanism.
 //
 // MEMBER DOCUMENTATION:
-// - _db: Injected NexusDbContext. Used only to read from domain_events table.
+// - _uow: Injected INexusUnitOfWork -- decoupled from Infrastructure (ADR-006 fix).
 // - Handle: Loads all events for the given aggregate_id ordered by aggregate_version.
 //   Returns null if no events exist for the given ID.
 //   Applies each event by switching on EventType and mutating AccountState.
@@ -27,22 +27,22 @@ namespace NexusEngine.Api.Application.Accounts.Queries.ReplayAccount;
 using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using NexusEngine.Api.Infrastructure.Persistence;
+using NexusEngine.Api.Application.Abstractions;
 
 public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAccountDto?>
 {
-    private readonly NexusDbContext _db;
+    private readonly INexusUnitOfWork _uow;
 
-    public ReplayAccountHandler(NexusDbContext db)
+    public ReplayAccountHandler(INexusUnitOfWork uow)
     {
-        _db = db;
+        _uow = uow;
     }
 
     public async Task<ReplayAccountDto?> Handle(
         ReplayAccountQuery query,
         CancellationToken cancellationToken)
     {
-        var events = await _db.DomainEvents
+        var events = await _uow.DomainEvents
             .AsNoTracking()
             .Where(e => e.AggregateId == query.AccountId)
             .OrderBy(e => e.AggregateVersion)
@@ -79,10 +79,6 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
                         state.Balance = deposited.BalanceAfter;
                         break;
 
-                    // Fix #7 -- evento sconosciuto: mai ignorare silenziosamente.
-                    // Se un nuovo EventType viene aggiunto al sistema senza aggiornare
-                    // il replay handler, lo stato ricostruito sarebbe silenziosamente
-                    // errato. Meglio fallire esplicitamente.
                     default:
                         throw new InvalidOperationException(
                             $"Unknown event type '{evt.EventType}' " +
@@ -93,9 +89,6 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
             }
             catch (System.Text.Json.JsonException ex)
             {
-                // Fix #6 -- payload corrotto: fallisce con messaggio diagnostico
-                // invece di HTTP 500 criptico. Il Controller traduce
-                // InvalidOperationException in HTTP 400.
                 throw new InvalidOperationException(
                     $"Event {evt.Id} (type={evt.EventType}, " +
                     $"version={evt.AggregateVersion}) " +

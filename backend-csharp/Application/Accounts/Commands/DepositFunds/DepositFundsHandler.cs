@@ -12,7 +12,7 @@
 //   writes a new domain event, and updates the projection atomically.
 //
 // MEMBER DOCUMENTATION:
-// - _db: Injected NexusDbContext for read and write operations.
+// - _uow: Injected INexusUnitOfWork -- decoupled from Infrastructure (ADR-006 fix).
 // - Handle: Loads the account projection, validates existence and status,
 //   computes the next aggregate version, writes FundsDeposited event,
 //   updates account balance and last_event_version, persists atomically.
@@ -25,25 +25,23 @@ namespace NexusEngine.Api.Application.Accounts.Commands.DepositFunds;
 using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using NexusEngine.Api.Application.Abstractions;
 using NexusEngine.Api.Domain.Entities;
-using NexusEngine.Api.Infrastructure.Persistence;
 
 public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
 {
-    private readonly NexusDbContext _db;
+    private readonly INexusUnitOfWork _uow;
 
-    public DepositFundsHandler(NexusDbContext db)
+    public DepositFundsHandler(INexusUnitOfWork uow)
     {
-        _db = db;
+        _uow = uow;
     }
 
     public async Task<Unit> Handle(
         DepositFundsCommand command,
         CancellationToken cancellationToken)
     {
-        // 1. Carica la proiezione corrente dell'account.
-        //    Tracking abilitato -- dobbiamo modificare questa entity.
-        var account = await _db.Accounts
+        var account = await _uow.Accounts
             .FirstOrDefaultAsync(
                 a => a.Id == command.AccountId,
                 cancellationToken
@@ -57,16 +55,8 @@ public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
             throw new InvalidOperationException(
                 $"Account {command.AccountId} is not Active.");
 
-        // 2. Calcola la prossima versione dell'aggregato.
-        //    LastEventVersion e' la versione dell'ultimo evento
-        //    processato da questa proiezione.
-        //    Il nuovo evento avra' version + 1.
         var nextVersion = account.LastEventVersion + 1;
 
-        // 3. Costruisce il domain event.
-        //    FundsDeposited e' un fatto immutabile --
-        //    registra esattamente quanto e' stato depositato
-        //    e qual era il saldo precedente.
         var domainEvent = new DomainEvent
         {
             AggregateId      = command.AccountId,
@@ -81,14 +71,12 @@ public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
             })
         };
 
-        // 4. Aggiorna la proiezione.
         account.Balance          += command.Amount;
         account.LastEventVersion  = nextVersion;
         account.UpdatedAt         = DateTime.UtcNow;
 
-        // 5. Persiste evento e proiezione nella stessa transazione.
-        _db.DomainEvents.Add(domainEvent);
-        await _db.SaveChangesAsync(cancellationToken);
+        _uow.DomainEvents.Add(domainEvent);
+        await _uow.SaveChangesAsync(cancellationToken);
 
         return Unit.Value;
     }

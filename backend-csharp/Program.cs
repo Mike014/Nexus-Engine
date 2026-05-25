@@ -28,6 +28,7 @@
 // ============================================================================
 
 using Microsoft.EntityFrameworkCore;
+using NexusEngine.Api.Application.Abstractions;
 using NexusEngine.Api.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,6 +63,8 @@ builder.Services.AddDbContext<NexusDbContext>(options =>
         );
     });
 });
+
+builder.Services.AddScoped<INexusUnitOfWork, NexusUnitOfWork>();
 
 var app = builder.Build();
 
