@@ -37,11 +37,15 @@ public class Order
 
     public Guid AccountId { get; set; }
 
+    public string Symbol { get; set; } = string.Empty;
+
     public string Side { get; set; } = string.Empty;
 
     public decimal Price { get; set; }
 
     public decimal Quantity { get; set; }
+
+    public decimal RemainingQuantity { get; set; }
 
     public decimal FilledQuantity { get; set; }
 
