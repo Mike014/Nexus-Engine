@@ -31,23 +31,6 @@ services:
     profiles:
       - csharp
 
-  backend-java:
-    build:
-      context: ./backend-java
-      dockerfile: Dockerfile
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/nexusdb
-      - SPRING_DATASOURCE_USERNAME=nexus
-      - SPRING_DATASOURCE_PASSWORD=nexus_dev_password
-    ports:
-      - "5000:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    profiles:
-      - java
-
   frontend:
     build:
       context: ./frontend
@@ -58,15 +41,12 @@ services:
       - VITE_API_URL=http://localhost:5000
     profiles:
       - csharp
-      - java
 
 volumes:
   postgres_data:
 
-# Entrambi i backend espongono la porta 5000 sull'host mappata su 8080 nel container. 
-# Poiche' un solo backend e' attivo alla volta per vincolo ADR-003, non c'e' conflitto di porta. 
-# Il frontend punta sempre a localhost:5000 indipendentemente dal backend attivo.
-# Il healthcheck su postgres e' necessario. 
-# Senza, i backend partono prima che PostgreSQL sia pronto ad accettare connessioni e crashano. depends_on con condition: service_healthy 
-# risolve la race condition di startup.
-# Il frontend e' incluso in entrambi i profili. Questo e' intenzionale: il frontend non sa quale backend sta girando, sa solo che c'e' qualcosa su localhost:5000.
+# Il backend espone la porta 5000 sull'host mappata su 8080 nel container.
+# Il frontend punta sempre a localhost:5000.
+# Il healthcheck su postgres e' necessario.
+# Senza, il backend parte prima che PostgreSQL sia pronto ad accettare connessioni e crasha.
+# depends_on con condition: service_healthy risolve la race condition di startup.

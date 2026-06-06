@@ -9,25 +9,16 @@
 - **CQRS**: MediatR commands/queries in `Application/`, thin controllers in `Controllers/`.
 - **Clean Architecture**: `Domain/` (pure C#) → `Application/` (depends on `INexusUnitOfWork` only) → `Infrastructure/` (EF Core, migrations).
 - **Optimistic Locking**: Unique index `(aggregate_id, aggregate_version)` on `domain_events`. Postgres error `23505` = concurrent write detected.
-- **Single active backend (ADR-003)**: C# and Java **cannot run simultaneously** — in-memory order book would diverge.
-
-## Switch backends via Docker Compose profiles
+## Docker Compose
 
 ```bash
 make up-csharp    # docker compose --profile csharp up --build
-make up-java      # docker compose --profile java up --build
 make down         # stops all profiles
 make logs-csharp  # tail C# logs
-make logs-java    # tail Java logs
 make db-shell     # psql -U nexus -d nexusdb
 ```
 
-Port `5000:8080` for both backends. Frontend on `3000`. One backend at a time — no port conflict.
-
-## Schema ownership (ADR-005)
-
-**C# is schema master** — EF Core migrations own the schema.
-**Java is slave** — Hibernate `ddl-auto=validate` only (never creates/alters tables).
+Port `5000:8080`. Frontend on `3000`.
 
 ### Generate a migration
 ```bash
@@ -48,14 +39,6 @@ dotnet run   # http://localhost:5140, swagger at /swagger
 ```
 
 No test project exists for C# backend.
-
-## Java build & run
-
-```bash
-cd backend-java
-./mvnw.cmd package -DskipTests
-# Only skeleton — main class + context load test exist, no domain/controllers yet.
-```
 
 ## Database
 
@@ -106,10 +89,9 @@ npm run lint     # eslint .
 
 ## What doesn't exist yet
 
-- Java backend: missing entities, repositories, controllers, services (skeleton only).
 - Frontend: not customized — still showing Vite/React demo.
 - Order book / matching engine (Phase 3).
-- Real-time: SignalR (C#) / STOMP (Java) (Phase 4).
+- Real-time: SignalR (Phase 4).
 - Observability: structured logging, health checks, metrics (Phase 5).
 - CI/CD: no GitHub Actions workflows.
 - Tests: C# backend has no test project.

@@ -11,7 +11,7 @@
 
 A simulated order/betting engine built to demonstrate production-grade backend engineering skills relevant to iGaming and Fintech companies.
 
-Nexus Engine is not a commercial product. It is a technical portfolio project that showcases mastery of transactional systems, concurrency, real-time communication, and configurable business rules — implemented twice, in C# and Java, sharing the same database and frontend.
+Nexus Engine is not a commercial product. It is a technical portfolio project that showcases mastery of transactional systems, concurrency, real-time communication, and configurable business rules.
 
 ### **Documentation**
 - [Nexus Engine](https://docs.google.com/document/d/1_g5yustt4jpWbeg5F9ApeEEyxlwxWvcyzC5pAtTxDK4/edit?tab=t.0#heading=h.cfhcybw6q3iy)
@@ -22,13 +22,12 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 ## What This Project Demonstrates
 
 - **Event Sourcing** — every state change is recorded as an immutable domain event. The event store is the source of truth. Current state is a projection derived from events.
-- **CQRS** — strict separation between write operations (Commands) and read operations (Queries) via MediatR (.NET) and manual pattern implementation (Java).
+- **CQRS** — strict separation between write operations (Commands) and read operations (Queries) via MediatR.
 - **Concurrency control** — progressive strategy: Pessimistic Locking (Phase 2) migrated to Optimistic Locking (Phase 3), documented as a conscious engineering decision.
 - **Atomic dual-write** — domain event and read-side projection written in the same database transaction. No inconsistent state possible.
 - **Event replay** — any aggregate's state can be reconstructed at any point in time by replaying its event stream.
 - **Configurable business rules** — validation rules (limits, odds, fees) are externalized, not hardcoded.
-- **Real-time updates** — WebSocket push notifications via SignalR (C#) and STOMP (Java).
-- **Polyglot architecture** — two independent backend implementations sharing the same PostgreSQL schema and React frontend, demonstrating language-agnostic system design.
+- **Real-time updates** — WebSocket push notifications via SignalR.
 
 ---
 
@@ -40,17 +39,13 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 │              (TypeScript + Vite + nginx)            │
 └──────────────────────┬──────────────────────────────┘
                        │ HTTP + WebSocket
-          ┌────────────┴────────────┐
-          │                         │
-┌─────────▼──────────┐   ┌──────────▼─────────┐
-│   Backend C#        │   │   Backend Java      │
-│   ASP.NET Core 8    │   │   Spring Boot 3.5   │
-│   MediatR + EF Core │   │   Spring Data JPA   │
-│   SignalR           │   │   STOMP WebSocket   │
-└─────────┬──────────┘   └──────────┬──────────┘
-          │                         │
-          └────────────┬────────────┘
-                       │
+┌─────────▼──────────┐
+│   Backend C#        │
+│   ASP.NET Core 8    │
+│   MediatR + EF Core │
+│   SignalR           │
+└─────────┬──────────┘
+          │
               ┌────────▼────────┐
               │   PostgreSQL 16  │
               │                 │
@@ -62,29 +57,22 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
               └─────────────────┘
 ```
 
-> **Architectural constraint (ADR-003):** only one backend runs at a time. The order book lives in-memory inside the backend process. Running both backends simultaneously would produce divergent in-memory state. Switch between backends using Docker Compose profiles.
+> **Architectural note:** the order book lives in-memory inside the backend process.
 
 ---
 
 ## Tech Stack
 
-### Backend C# (Master)
+### Backend
 - ASP.NET Core 8 Web API
 - Entity Framework Core 8 + Npgsql
 - MediatR 12 (CQRS)
 - SignalR (real-time WebSocket)
 - Swashbuckle (Swagger UI)
 
-### Backend Java (Slave)
-- Spring Boot 3.5
-- Spring Data JPA + Hibernate 6
-- Spring WebSocket (STOMP)
-- Maven
-
 ### Database
 - PostgreSQL 16
-- Schema owned by C# (EF Core Migrations)
-- Java uses `ddl-auto=validate` — Hibernate validates but never modifies schema
+- Schema owned by EF Core Migrations
 
 ### Frontend
 - React 18 + TypeScript
@@ -104,7 +92,7 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 - Docker Desktop (WSL2 backend on Windows)
 - Git
 
-### Run with C# backend
+### Run
 
 ```bash
 git clone https://github.com/Mike014/Nexus-Engine-.git
@@ -112,23 +100,7 @@ cd Nexus-Engine
 docker compose --profile csharp up --build
 ```
 
-### Run with Java backend
-
-```bash
-docker compose --profile java up --build
-```
-
-### Switch between backends
-
-```bash
-# Stop current backend
-docker compose --profile csharp down
-
-# Start the other
-docker compose --profile java up --build
-```
-
-### Available endpoints (C# backend)
+### Available endpoints
 
 ```
 POST   /api/accounts              Create a new account
@@ -150,21 +122,21 @@ The event store (`domain_events`) is the source of truth. Current state (`accoun
 - **Phase 3:** Migration to Optimistic Locking (version column on aggregates) — documented refactoring demonstrating awareness of trade-offs between throughput and correctness guarantees.
 
 ### ADR-003: Single active backend
-Both backends share the same PostgreSQL database. The in-memory order book cannot be shared between processes without a coordination layer (Redis, etc.). One backend is active at a time. Switch via Docker Compose profiles.
+The in-memory order book lives inside the C# backend process.
 
 ### ADR-004: Synchronous projections (Phases 1–3)
 Read-side projections are updated in the same database transaction as the domain event write. Strong consistency, no lag between write and read model. Async projection (outbox pattern / LISTEN-NOTIFY) is documented as a future evolution.
 
-### ADR-005: C# as schema master, Java as slave
-EF Core Migrations own the schema. Hibernate runs in `validate` mode — it validates entity mappings against the existing schema but never modifies it. Schema drift is caught early via CI boot tests.
+### ADR-005: EF Core as schema master
+EF Core Migrations own the schema.
 
 ---
 
 ## Development Roadmap
 
 ### Phase 1 — Foundation ✅
-- Project setup (C# + Java + React)
-- Docker Compose with backend profiles
+- Project setup (C# + React)
+- Docker Compose
 - Database schema: Event Store + projections
 - Account CRUD with Event Sourcing
 - Event replay endpoint
@@ -184,7 +156,7 @@ EF Core Migrations own the schema. Hibernate runs in `validate` mode — it vali
 - Order book recovery on restart
 
 ### Phase 4 — Real-time
-- SignalR push (C#) / STOMP WebSocket (Java)
+- SignalR push
 - Live order book, balance updates, trade feed
 - React dashboard with live data
 
