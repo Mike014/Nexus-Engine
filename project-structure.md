@@ -5,7 +5,8 @@ Nexus-Engine/
 ├── docker-compose.yml                   # Profili: csharp, frontend
 ├── Makefile                             # up-csharp, down, db-shell, logs-csharp
 ├── AGENTS.md                            # Guida per agent AI
-├── Phase1.md / Phase2.md                # Roadmap
+├── Phase1.md / Phase2.md / Phase3.md    # Roadmap
+├── project-structure.md                 # Questo file
 ├── README.md
 │
 ├── backend-csharp/                      # ▲ C# ASP.NET Core 8 — Clean Architecture
@@ -14,14 +15,21 @@ Nexus-Engine/
 │   ├── Dockerfile / .dockerignore
 │   ├── appsettings.json
 │   ├── appsettings.Development.json
+│   ├── NexusEngine.Api.http
+│   ├── Properties/
+│   │   └── launchSettings.json
 │   │
 │   ├── Controllers/                     # 🟢 Presentation Layer
 │   │   ├── AccountsController.cs        # POST/GET /api/accounts, deposit, replay
-│   │   └── OrdersController.cs          # POST/GET /api/orders
+│   │   └── OrdersController.cs          # POST/GET/DELETE /api/orders
 │   │
 │   ├── Application/                     # 🔵 Application Layer (CQRS)
 │   │   ├── Abstractions/
-│   │   │   └── INexusUnitOfWork.cs      # Contratto UoW (DbSet<Account, Order, ...>)
+│   │   │   ├── INexusUnitOfWork.cs      # Contratto UoW (DbSet<Account, Order, ...>)
+│   │   │   └── IOrderBookService.cs     # Contratto Order Book in-memory
+│   │   │
+│   │   ├── Common/
+│   │   │   └── OptimisticConcurrencyHelper.cs  # Rilevamento errore Postgres 23505
 │   │   │
 │   │   ├── Accounts/
 │   │   │   ├── Commands/
@@ -30,22 +38,23 @@ Nexus-Engine/
 │   │   │   │   │   └── CreateAccountHandler.cs
 │   │   │   │   └── DepositFunds/
 │   │   │   │       ├── DepositFundsCommand.cs
-│   │   │   │       └── DepositFundsHandler.cs
+│   │   │   │       └── DepositFundsHandler.cs    # Retry ottimistico (max 3)
 │   │   │   └── Queries/
 │   │   │       ├── GetAccount/
 │   │   │       │   ├── GetAccountQuery.cs
-│   │   │       │   ├── GetAccountHandler.cs
-│   │   │       │   └── AccountDto.cs
+│   │   │       │   └── GetAccountHandler.cs      # Inline AccountDto
 │   │   │       └── ReplayAccount/
 │   │   │           ├── ReplayAccountQuery.cs
-│   │   │           ├── ReplayAccountHandler.cs
-│   │   │           └── ReplayAccountDto.cs
+│   │   │           └── ReplayAccountHandler.cs   # Inline ReplayAccountDto
 │   │   │
 │   │   └── Orders/
 │   │       ├── Commands/
-│   │       │   └── PlaceOrder/
-│   │       │       ├── PlaceOrderCommand.cs
-│   │       │       └── PlaceOrderHandler.cs    # FOR UPDATE + Transaction ledger
+│   │       │   ├── PlaceOrder/
+│   │       │   │   ├── PlaceOrderCommand.cs
+│   │       │   │   └── PlaceOrderHandler.cs      # Matching engine + retry
+│   │       │   └── CancelOrder/
+│   │       │       ├── CancelOrderCommand.cs
+│   │       │       └── CancelOrderHandler.cs     # Rimuove da OrderBook
 │   │       ├── Queries/
 │   │       │   └── GetOrders/
 │   │       │       ├── GetOrdersQuery.cs
@@ -58,16 +67,23 @@ Nexus-Engine/
 │   │           └── SufficientBalanceValidation.cs    # 3°: saldo check
 │   │
 │   ├── Domain/                         # 🟡 Domain Layer (entità pure)
-│   │   └── Entities/
-│   │       ├── Account.cs              # balance, reserved_balance, status
-│   │       ├── DomainEvent.cs          # Append-only event store
-│   │       ├── IdempotencyKey.cs       # Chiave idempotenza
-│   │       ├── Order.cs                # Proiezione ordine
-│   │       └── Transaction.cs          # Ledger contabile
+│   │   ├── Entities/
+│   │   │   ├── Account.cs              # balance, reserved_balance, status
+│   │   │   ├── DomainEvent.cs          # Append-only event store
+│   │   │   ├── IdempotencyKey.cs       # Chiave idempotenza
+│   │   │   ├── Order.cs                # Proiezione ordine
+│   │   │   └── Transaction.cs          # Ledger contabile
+│   │   └── OrderBook/                  # 🆕 Matching Engine (dominio puro)
+│   │       ├── Trade.cs                # Record trade eseguito
+│   │       ├── MatchResult.cs          # Risultato match (trades + ordini residuali)
+│   │       └── OrderBook.cs            # Engine: price-time priority FIFO
 │   │
 │   ├── Infrastructure/                 # 🟣 Infrastructure Layer
 │   │   ├── Idempotency/
 │   │   │   └── IdempotencyFilter.cs    # Action Filter (X-Idempotency-Key)
+│   │   ├── OrderBook/                  # 🆕 Implementazione Order Book
+│   │   │   ├── OrderBookService.cs     # Singleton thread-safe con lock
+│   │   │   └── OrderBookRecoveryService.cs  # IHostedService: ricarica ordini all'avvio
 │   │   ├── Persistence/
 │   │   │   ├── NexusDbContext.cs       # EF Core DbContext
 │   │   │   ├── NexusUnitOfWork.cs      # Implementazione UoW
@@ -78,16 +94,19 @@ Nexus-Engine/
 │   │   │       ├── OrderConfiguration.cs
 │   │   │       └── TransactionConfiguration.cs
 │   │   └── Migrations/                # 4 migration EF Core
-│   │       ├── 20260516202232_InitialSchema.cs
-│   │       ├── 20260517115412_AddAccountBalanceConstraints.cs
-│   │       ├── 20260525074915_AddOrderSymbolAndRemainingQuantity.cs
-│   │       ├── 20260525075743_FixOrderColumnNames.cs
+│   │       ├── 20260516202232_InitialSchema.cs (+ .Designer)
+│   │       ├── 20260517115412_AddAccountBalanceConstraints.cs (+ .Designer)
+│   │       ├── 20260525074915_AddOrderSymbolAndRemainingQuantity.cs (+ .Designer)
+│   │       ├── 20260525075743_FixOrderColumnNames.cs (+ .Designer)
 │   │       └── NexusDbContextModelSnapshot.cs
 │   │
-│   ├── Properties/
-│   │   └── launchSettings.json
-│   ├── bin/ / obj/
-│   └── NexusEngine.Api.http
+│   └── bin/ / obj/
+│
+├── backend-csharp.Tests/               # 🧪 Progetto test xUnit
+│   ├── NexusEngine.Tests.csproj
+│   └── Domain/
+│       └── OrderBook/
+│           └── OrderBookTests.cs       # 12 test: match, add, remove, FIFO, rifiuto
 │
 └── frontend/                           # Vite 8 + React (placeholder / non customizzato)
     ├── Dockerfile
@@ -98,6 +117,8 @@ Nexus-Engine/
     ├── eslint.config.js
     ├── index.html
     ├── public/
+    │   ├── favicon.svg
+    │   └── icons.svg
     ├── node_modules/
     └── src/
         ├── main.tsx
@@ -105,6 +126,9 @@ Nexus-Engine/
         ├── App.tsx
         ├── App.css
         └── assets/
+            ├── hero.png
+            ├── react.svg
+            └── vite.svg
 ```
 
 ---
@@ -113,12 +137,13 @@ Nexus-Engine/
 
 | Method | Path | Controller | Handler | Descrizione |
 |--------|------|-----------|---------|-------------|
-| POST | `/api/accounts` | `AccountsController.CreateAccount` | `CreateAccountHandler` | Crea account → 201 |
-| GET | `/api/accounts/{id}` | `AccountsController.GetAccount` | `GetAccountHandler` | Legge proiezione → 200 / 404 |
-| POST | `/api/accounts/{id}/deposit` | `AccountsController.DepositFunds` | `DepositFundsHandler` | Deposita fondi → 204 |
-| GET | `/api/accounts/{id}/replay` | `AccountsController.ReplayAccount` | `ReplayAccountHandler` | Ricostruisce da eventi → 200 / 404 |
-| POST | `/api/orders` | `OrdersController.PlaceOrder` | `PlaceOrderHandler` | Piazza ordine → 201 / 400 / 404 / 409 |
+| POST | `/api/accounts` | `AccountsController.Create` | `CreateAccountHandler` | Crea account → 201 |
+| GET | `/api/accounts/{id}` | `AccountsController.Get` | `GetAccountHandler` | Legge proiezione → 200 / 404 |
+| POST | `/api/accounts/{id}/deposit` | `AccountsController.Deposit` | `DepositFundsHandler` | Deposita fondi (con retry ottimistico) → 204 |
+| GET | `/api/accounts/{id}/replay` | `AccountsController.Replay` | `ReplayAccountHandler` | Ricostruisce da eventi → 200 / 404 |
+| POST | `/api/orders` | `OrdersController.PlaceOrder` | `PlaceOrderHandler` | Piazza ordine → esegue matching → 201 / 400 / 404 / 409 |
 | GET | `/api/orders?accountId={id}` | `OrdersController.GetOrders` | `GetOrdersHandler` | Elenca ordini → 200 |
+| DELETE | `/api/orders/{orderId}` | `OrdersController.CancelOrder` | `CancelOrderHandler` | Cancella ordine aperto → 204 / 404 |
 
 ---
 
@@ -126,9 +151,10 @@ Nexus-Engine/
 
 - **Event Sourcing**: `domain_events` (append-only) è la source of truth. `accounts`, `orders`, `transactions` sono proiezioni sincrone aggiornate nella stessa transazione DB (atomic dual-write).
 - **CQRS**: MediatR command/query in `Application/`, controller sottili in `Controllers/`.
-- **Clean Architecture**: `Domain/` (C# puro) → `Application/` (dipende solo da `INexusUnitOfWork`) → `Infrastructure/` (EF Core, migration).
-- **Optimistic Locking**: Unique index `(aggregate_id, aggregate_version)` su `domain_events`. Postgres errore `23505` = scrittura concorrente rilevata.
-- **Pessimistic Locking**: `SELECT ... FOR UPDATE` su `accounts` in `PlaceOrderHandler`.
+- **Clean Architecture**: `Domain/` (C# puro) → `Application/` (dipende solo da `INexusUnitOfWork`) → `Infrastructure/` (EF Core, migration, servizi esterni).
+- **Order Book in-memory**: `Domain/OrderBook/OrderBook.cs` (dominio puro, zero dipendenze). `OrderBookService` singleton thread-safe con lock. Ricaricato all'avvio da `OrderBookRecoveryService`.
+- **Matching Engine**: Price-time priority FIFO. `SortedDictionary` per bids (desc) e asks (asc). Match/add/remove operations.
+- **Optimistic Locking**: Unique index `(aggregate_id, aggregate_version)` su `domain_events`. Postgres errore `23505` → retry (max 3 con jitter 50-300ms).
 - **Idempotency**: Action Filter `IdempotencyFilter` con header `X-Idempotency-Key` su `POST /api/orders`.
 
 ---
