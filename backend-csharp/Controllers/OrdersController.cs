@@ -21,6 +21,8 @@
 //   violation, 404 if account not found, 409 Conflict on concurrent modification.
 // - GetOrders: GET /api/orders?accountId={id}. Dispatches GetOrdersQuery.
 //   Returns HTTP 200 with list of OrderDto, 400 if accountId is empty.
+// - CancelOrder: DELETE /api/orders/{orderId}?accountId={id}. Dispatches
+//   CancelOrderCommand. Returns HTTP 204 NoContent on success.
 // ============================================================================
 
 namespace NexusEngine.Api.Controllers;
@@ -29,6 +31,7 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using NexusEngine.Api.Application.Orders.Commands.CancelOrder;
 using NexusEngine.Api.Application.Orders.Commands.PlaceOrder;
 using NexusEngine.Api.Application.Orders.Queries.GetOrders;
 using NexusEngine.Api.Infrastructure.Idempotency;
@@ -110,6 +113,32 @@ public class OrdersController : ControllerBase
             cancellationToken);
 
         return Ok(orders);
+    }
+
+    [HttpDelete("{orderId:guid}")]
+    public async Task<IActionResult> CancelOrder(
+        Guid orderId,
+        [FromQuery] Guid accountId,
+        CancellationToken cancellationToken)
+    {
+        if (accountId == Guid.Empty)
+            return BadRequest("AccountId is required.");
+
+        try
+        {
+            await _mediator.Send(
+                new CancelOrderCommand(orderId, accountId),
+                cancellationToken);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 }
 

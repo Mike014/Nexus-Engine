@@ -10,6 +10,8 @@
 # Build output
 backend-csharp/bin/
 backend-csharp/obj/
+backend-csharp.Tests/bin/
+backend-csharp.Tests/obj/
 
 # User-specific Visual Studio files
 *.user

@@ -32,6 +32,8 @@ using NexusEngine.Api.Application.Abstractions;
 using NexusEngine.Api.Infrastructure.Idempotency;
 using NexusEngine.Api.Infrastructure.Persistence;
 using NexusEngine.Api.Application.Orders.Validation;
+using NexusEngine.Application.Abstractions;
+using NexusEngine.Infrastructure.OrderBook;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -75,6 +77,10 @@ builder.Services.AddScoped<IdempotencyFilter>();
 builder.Services.AddScoped<IOrderValidationStrategy, AccountExistsValidation>();
 builder.Services.AddScoped<IOrderValidationStrategy, AccountActiveValidation>();
 builder.Services.AddScoped<IOrderValidationStrategy, SufficientBalanceValidation>();
+
+// Order Book Matching Engine -- Singleton, in-memory state
+builder.Services.AddSingleton<IOrderBookService, OrderBookService>();
+builder.Services.AddHostedService<OrderBookRecoveryService>();
 
 var app = builder.Build();
 
