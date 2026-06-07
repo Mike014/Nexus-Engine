@@ -111,7 +111,9 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("NexusPolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(
+                  "http://localhost:3000",
+                  "https://nexus-engine-olive.vercel.app")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
