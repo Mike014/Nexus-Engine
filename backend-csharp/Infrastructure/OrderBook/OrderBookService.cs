@@ -62,6 +62,7 @@ public class OrderBookService : IOrderBookService
         lock (_lock)
         {
             var bids = _orderBook.Bids
+                .Where(b =>b.Value.Sum(o => o.RemainingQuantity) > 0)
                 .Select(b => new
                 {
                     Price = b.Key,
@@ -70,6 +71,7 @@ public class OrderBookService : IOrderBookService
                 .ToList();
 
             var asks = _orderBook.Asks
+                .Where(b =>b.Value.Sum(o => o.RemainingQuantity) > 0)
                 .Select(a => new
                 {
                     Price = a.Key,
