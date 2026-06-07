@@ -137,18 +137,27 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
 
         foreach (var trade in matchResult.Trades)
         {
-            var makerOrder = await _uow.Orders.FindAsync(trade.MakerOrderId, cancellationToken)
+            var makerOrder = await _uow.Orders
+                .AsNoTracking()
+                .FirstOrDefaultAsync(o => o.Id == trade.MakerOrderId, cancellationToken)
                 ?? throw new KeyNotFoundException($"Maker order {trade.MakerOrderId} not found.");
-
-            var makerAccount = await _uow.Accounts.FindAsync(makerOrder.AccountId, cancellationToken)
-                ?? throw new KeyNotFoundException($"Maker account {makerOrder.AccountId} not found.");
 
             makerOrder.RemainingQuantity -= trade.Quantity;
             makerOrder.FilledQuantity += trade.Quantity;
             makerOrder.Status = makerOrder.RemainingQuantity == 0 ? "Filled" : "PartiallyFilled";
             makerOrder.UpdatedAt = DateTime.UtcNow;
 
+            _uow.Orders.Update(makerOrder);
+
+            var makerAccount = await _uow.Accounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == makerOrder.AccountId, cancellationToken)
+                ?? throw new KeyNotFoundException($"Maker account {makerOrder.AccountId} not found.");
+
             ApplyTradeToAccount(makerAccount, makerOrder.Side, trade.Price * trade.Quantity);
+
+            _uow.Accounts.Update(makerAccount);
+
             ApplyTradeToAccount(account, order.Side, trade.Price * trade.Quantity);
 
             version++;
