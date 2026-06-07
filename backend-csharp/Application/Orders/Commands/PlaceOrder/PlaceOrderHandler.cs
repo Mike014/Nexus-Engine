@@ -11,7 +11,9 @@
 // CLASS DOCUMENTATION:
 // - PlaceOrderHandler: Executes the place order workflow with matching.
 //   Delegates validation to IOrderValidationStrategy implementations.
-//   Applies pessimistic locking via SELECT FOR UPDATE on the account row.
+//   Applies optimistic concurrency control via the unique constraint on
+//   (aggregate_id, aggregate_version) in the domain_events table. Retries
+//   up to 3 times with random jitter on unique constraint violations.
 //   Routes the order through IOrderBookService.Match() for price-time
 //   priority matching. Processes resulting trades by updating maker
 //   orders and accounts atomically. Places unmatched quantity back
@@ -25,7 +27,8 @@
 // - Handle: Validates, matches via OrderBook, processes trades, persists atomically.
 // - ApplyTradeToAccount: Adjusts account balance and reserved balance based on trade side.
 //   Throws KeyNotFoundException if account or maker order does not exist.
-//   Throws InvalidOperationException if any validation rule is violated.
+//   Throws InvalidOperationException if any validation rule is violated
+//   or retries are exhausted due to concurrent activity.
 // ============================================================================
 
 namespace NexusEngine.Api.Application.Orders.Commands.PlaceOrder;
@@ -34,6 +37,7 @@ using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Application.Abstractions;
+using NexusEngine.Api.Application.Common;
 using NexusEngine.Api.Application.Orders.Validation;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
@@ -73,9 +77,39 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         PlaceOrderCommand command,
         CancellationToken cancellationToken)
     {
+        const int maxAttempts = 3;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                return await ExecuteOnce(command, cancellationToken);
+            }
+            catch (DbUpdateException ex) when (OptimisticConcurrencyHelper.IsUniqueConstraintViolation(ex))
+            {
+                if (attempt < maxAttempts)
+                {
+                    var delay = Random.Shared.Next(50, 300);
+                    await Task.Delay(delay, cancellationToken);
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "Order could not be placed due to concurrent activity. Please try again.");
+                }
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Order could not be placed due to concurrent activity. Please try again.");
+    }
+
+    private async Task<Guid> ExecuteOnce(
+        PlaceOrderCommand command,
+        CancellationToken cancellationToken)
+    {
         var account = await _uow.Accounts
-            .FromSqlInterpolated($"SELECT * FROM accounts WHERE id = {command.AccountId} FOR UPDATE")
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(a => a.Id == command.AccountId, cancellationToken);
 
         foreach (var validation in _validations)
             validation.Validate(account, command);

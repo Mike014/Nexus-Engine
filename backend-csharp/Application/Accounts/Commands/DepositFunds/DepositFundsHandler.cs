@@ -5,6 +5,9 @@
 //
 // FILE DESCRIPTION:
 // Implements the MediatR handler for DepositFundsCommand.
+// Uses optimistic concurrency control via the unique constraint on
+// (aggregate_id, aggregate_version) in the domain_events table.
+// Retries up to 3 times with random jitter on unique constraint violations.
 //
 // CLASS DOCUMENTATION:
 // - DepositFundsHandler: Executes the deposit workflow against the Account aggregate.
@@ -17,7 +20,8 @@
 //   computes the next aggregate version, writes FundsDeposited event,
 //   updates account balance and last_event_version, persists atomically.
 //   Throws KeyNotFoundException if account does not exist.
-//   Throws InvalidOperationException if account is not Active.
+//   Throws InvalidOperationException if account is not Active
+//   or retries are exhausted due to concurrent activity.
 // ============================================================================
 
 namespace NexusEngine.Api.Application.Accounts.Commands.DepositFunds;
@@ -26,6 +30,7 @@ using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Application.Abstractions;
+using NexusEngine.Api.Application.Common;
 using NexusEngine.Api.Domain.Entities;
 
 public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
@@ -38,6 +43,37 @@ public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
     }
 
     public async Task<Unit> Handle(
+        DepositFundsCommand command,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                return await ExecuteOnce(command, cancellationToken);
+            }
+            catch (DbUpdateException ex) when (OptimisticConcurrencyHelper.IsUniqueConstraintViolation(ex))
+            {
+                if (attempt < maxAttempts)
+                {
+                    var delay = Random.Shared.Next(50, 300);
+                    await Task.Delay(delay, cancellationToken);
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "Deposit could not be completed due to concurrent activity. Please try again.");
+                }
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Deposit could not be completed due to concurrent activity. Please try again.");
+    }
+
+    private async Task<Unit> ExecuteOnce(
         DepositFundsCommand command,
         CancellationToken cancellationToken)
     {

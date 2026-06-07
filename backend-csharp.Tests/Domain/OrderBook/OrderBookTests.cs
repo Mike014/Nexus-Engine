@@ -14,6 +14,8 @@
 
 namespace NexusEngine.Tests.Domain.OrderBook;
 
+using Microsoft.EntityFrameworkCore;
+using NexusEngine.Api.Application.Common;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Domain.OrderBook;
 using Xunit;
@@ -208,5 +210,27 @@ public class OrderBookTests
         // Act & Assert
         var ex = Assert.Throws<InvalidOperationException>(() => book.RemoveOrder(order));
         Assert.Contains("not found", ex.Message);
+    }
+
+    [Fact]
+    public void IsUniqueConstraintViolation_Detects23505()
+    {
+        // Arrange
+        var inner = new Exception("23505: duplicate key value violates unique constraint");
+        var dbEx = new DbUpdateException("An error occurred.", (Exception?)inner);
+
+        var otherInner = new Exception("connection refused");
+        var otherDbEx = new DbUpdateException("An error occurred.", (Exception?)otherInner);
+
+        // Act
+        var matches = OptimisticConcurrencyHelper.IsUniqueConstraintViolation(dbEx);
+        var noMatch = OptimisticConcurrencyHelper.IsUniqueConstraintViolation(otherDbEx);
+        var nullInnerResult = OptimisticConcurrencyHelper.IsUniqueConstraintViolation(
+            new DbUpdateException("no inner", innerException: null));
+
+        // Assert
+        Assert.True(matches);
+        Assert.False(noMatch);
+        Assert.False(nullInnerResult);
     }
 }
