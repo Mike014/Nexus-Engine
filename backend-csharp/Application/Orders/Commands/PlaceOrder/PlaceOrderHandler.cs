@@ -1,3 +1,37 @@
+// ============================================================================
+// Copyright (c) NexusEngine Enterprise. All rights reserved.
+// Product: NexusEngine.Api
+// Layer: Application.Orders.Commands.PlaceOrder
+//
+// FILE DESCRIPTION:
+// Implements the MediatR handler for PlaceOrderCommand.
+// Integrates with IOrderBookService to match incoming orders against
+// resting liquidity using price-time priority FIFO matching.
+//
+// CLASS DOCUMENTATION:
+// - PlaceOrderHandler: Executes the place order workflow with matching.
+//   Delegates validation to IOrderValidationStrategy implementations.
+//   Applies optimistic concurrency control via the unique constraint on
+//   (aggregate_id, aggregate_version) in the domain_events table. Retries
+//   up to 3 times with random jitter on unique constraint violations.
+//   Routes the order through IOrderBookService.Match() for price-time
+//   priority matching. Processes resulting trades by updating maker
+//   orders and accounts atomically. Places unmatched quantity back
+//   into the order book via AddOrder(). Writes OrderMatched and
+//   OrderPlaced domain events with corresponding transaction records.
+//
+// MEMBER DOCUMENTATION:
+// - _uow: Injected INexusUnitOfWork -- single unit of work for atomic persistence.
+// - _validations: Injected collection of validation strategies -- Open/Closed Principle.
+// - _orderBookService: Injected IOrderBookService singleton -- in-memory matching engine.
+// - _mediator: Injected IMediator -- publishes notifications after successful persistence.
+// - Handle: Validates, matches via OrderBook, processes trades, persists atomically.
+// - ApplyTradeToAccount: Adjusts account balance and reserved balance based on trade side.
+//   Throws KeyNotFoundException if account or maker order does not exist.
+//   Throws InvalidOperationException if any validation rule is violated
+//   or retries are exhausted due to concurrent activity.
+// ============================================================================
+
 namespace NexusEngine.Api.Application.Orders.Commands.PlaceOrder;
 
 using System.Text.Json;
@@ -9,7 +43,6 @@ using NexusEngine.Api.Application.Orders.Notifications;
 using NexusEngine.Api.Application.Orders.Validation;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
-using NexusEngine.Domain.OrderBook;
 
 public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
 {
@@ -49,31 +82,13 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         PlaceOrderCommand command,
         CancellationToken cancellationToken)
     {
-        var orderId = Guid.NewGuid();
-
-        var order = new Order
-        {
-            Id                = orderId,
-            AccountId         = command.AccountId,
-            Symbol            = command.Symbol,
-            Side              = command.Side,
-            Quantity          = command.Quantity,
-            RemainingQuantity = command.Quantity,
-            FilledQuantity    = 0,
-            Price             = command.Price,
-            Status            = "Pending",
-            CreatedAt         = DateTime.UtcNow
-        };
-
-        var matchResult = _orderBookService.Match(order);
-
         const int maxAttempts = 3;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             try
             {
-                return await PersistAndPublish(order, orderId, matchResult, command, cancellationToken);
+                return await ExecuteOnce(command, cancellationToken);
             }
             catch (DbUpdateException ex) when (OptimisticConcurrencyHelper.IsUniqueConstraintViolation(ex))
             {
@@ -94,15 +109,11 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
             "Order could not be placed due to concurrent activity. Please try again.");
     }
 
-    private async Task<Guid> PersistAndPublish(
-        Order order,
-        Guid orderId,
-        MatchResult matchResult,
+    private async Task<Guid> ExecuteOnce(
         PlaceOrderCommand command,
         CancellationToken cancellationToken)
     {
         var account = await _uow.Accounts
-            .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == command.AccountId, cancellationToken);
 
         foreach (var validation in _validations)
@@ -111,6 +122,24 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         var reservationAmount = command.Side == "Buy"
             ? command.Quantity * command.Price
             : 0m;
+
+        var orderId = Guid.NewGuid();
+
+        var order = new Order
+        {
+            Id                = orderId,
+            AccountId         = command.AccountId,
+            Symbol            = command.Symbol,
+            Side              = command.Side,
+            Quantity          = command.Quantity,
+            RemainingQuantity = command.Quantity,
+            FilledQuantity    = 0,
+            Price             = command.Price,
+            Status            = "Pending",
+            CreatedAt         = DateTime.UtcNow
+        };
+
+        var matchResult = _orderBookService.Match(order);
 
         account!.ReservedBalance += reservationAmount;
 
@@ -208,7 +237,6 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         account.LastEventVersion = version;
         account.UpdatedAt = DateTime.UtcNow;
 
-        _uow.Accounts.Update(account);
         _uow.Orders.Add(order);
 
         foreach (var evt in domainEvents)
