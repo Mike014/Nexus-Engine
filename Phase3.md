@@ -8,63 +8,78 @@ between resting and incoming orders.
 
 ---
 
-## Sprint 3A -- Progress
+## Sprint 3A -- COMPLETED
 
-### Task 3A-1: COMPLETED
+### Task 3A-1: Domain -- OrderBook, MatchResult, Trade -- COMPLETED
 
-**Domain/OrderBook layer created (pure C#, no EF Core, no MediatR, no ASP.NET):**
+- Created `Domain/OrderBook/Trade.cs` -- immutable record with MakerOrderId, Price, Quantity
+- Created `Domain/OrderBook/MatchResult.cs` -- match result container with static Empty() factory
+- Created `Domain/OrderBook/OrderBook.cs` -- pure domain matching engine, SortedDictionary bids (descending) / asks (ascending), price-time priority FIFO, methods: Match, AddOrder, RemoveOrder
+- Created `backend-csharp.Tests/Domain/OrderBook/OrderBookTests.cs` -- 9 xUnit tests: no-match, full match, partial fill, FIFO, price priority, remove single, remove from multi, remove missing order throws
+- Build: 0 warnings, 0 errors. Tests: 9/9 passed.
 
-```
-Domain/OrderBook/
-    Trade.cs              -- record with MakerOrderId, Price, Quantity
-    MatchResult.cs        -- IReadOnlyList of Trade, static Empty() factory
-    OrderBook.cs          -- pure domain matching engine
-```
+### Task 3A-2: Infrastructure -- IOrderBookService singleton -- COMPLETED
 
-**OrderBook implementation details:**
+- Created `Application/Abstractions/IOrderBookService.cs` -- contract in Application layer (Match, AddOrder, RemoveOrder)
+- Created `Infrastructure/OrderBook/OrderBookService.cs` -- singleton implementation, thread-safe with `lock(_lock)`, fixed symbol BTC/USD
+- Modified `Program.cs` -- registered as `AddSingleton`
 
-- Internal state: two `SortedDictionary<decimal, Queue<Order>>` — bids with
-  descending comparer, asks with default ascending comparer
-- `Match(Order)` decomposes into `TryMatchAgainstAsks` (buys) and
-  `TryMatchAgainstBids` (sells)
-- Price-time priority FIFO: match when taker bid >= best ask, or taker ask <= best bid
-- Exhausted price levels removed from dictionary automatically
-- Unmatched quantity added to the resting book after matching
+### Task 3A-3: Application -- PlaceOrderHandler integration -- COMPLETED
 
-**Test project created:**
+- Modified `Application/Orders/Commands/PlaceOrder/PlaceOrderHandler.cs`
+- Integrated IOrderBookService via constructor injection
+- Added `private static ApplyTradeToAccount` method -- handles balance movements by order side
+- Flow: validation -> match -> process trades -> update maker and taker accounts -> AddOrder if partial -> single SaveChangesAsync
 
-```
-backend-csharp.Tests/
-    NexusEngine.Tests.csproj      -- xUnit, references NexusEngine.Api
-    Domain/OrderBook/
-        OrderBookTests.cs         -- 6 unit tests
-```
+### Task 3A-4/5: CancelOrder command -- COMPLETED
 
-**Test scenarios:**
+- Created `Application/Orders/Commands/CancelOrder/CancelOrderCommand.cs`
+- Created `Application/Orders/Commands/CancelOrder/CancelOrderHandler.cs` -- verifies ownership, cancellable status, refunds reserved_balance, appends OrderCancelled event
+- Modified `Controllers/OrdersController.cs` -- added `DELETE /api/orders/{orderId}?accountId={id}` returning 204 NoContent
+- Modified `Domain/OrderBook/OrderBook.cs` -- added RemoveOrder with fail-fast on missing order
+- Modified `Application/Abstractions/IOrderBookService.cs` -- added RemoveOrder to contract
+- Modified `Infrastructure/OrderBook/OrderBookService.cs` -- implemented RemoveOrder with `lock`
 
-| # | Scenario | Assertion |
-|---|----------|-----------|
-| 1 | Buy order with no matching asks | 0 trades, order sits in bids |
-| 2 | Sell order with no matching bids | 0 trades, order sits in asks |
-| 3 | Exact full match at same price | 1 trade, both consumed, book empty |
-| 4 | Partial match (taker larger) | 1 trade, taker remains in bids |
-| 5 | Multiple makers same price level | 2 trades in FIFO order |
-| 6 | Price priority (two asks, different prices) | Cheaper ask hit first |
-
-**Build/Tests:**
+### Commit history Sprint 3A
 
 ```
-dotnet build:  0 warnings, 0 errors
-dotnet test:   6/6 passed (555 ms)
+d3ecb95 -- feat: CancelOrder + RemoveOrder + DELETE endpoint (Task 3A-4/5)
+e28c94d -- feat: PlaceOrderHandler integrazione OrderBookService (Task 3A-3)
+953291d -- feat: IOrderBookService + OrderBookService singleton (Task 3A-2)
+811bcf2 -- feat: OrderBook domain layer + xUnit + Phase3.md (Task 3A-1)
 ```
+
+### API endpoints after Sprint 3A
+
+| Method | Path | Phase |
+|--------|------|-------|
+| POST   | `/api/accounts` | Phase 1 |
+| GET    | `/api/accounts/{id}` | Phase 1 |
+| POST   | `/api/accounts/{id}/deposit` | Phase 1 |
+| GET    | `/api/accounts/{id}/replay` | Phase 1 |
+| POST   | `/api/orders` | Phase 2 |
+| GET    | `/api/orders?accountId={id}` | Phase 2 |
+| DELETE | `/api/orders/{orderId}?accountId={id}` | Phase 3 |
 
 ---
 
 ## Technical Debt
 
-`backend-csharp.Tests` references `NexusEngine.Api` directly. Acceptable for now.
-When the project grows, Domain tests should be isolated in a dedicated
+`backend-csharp.Tests` references `NexusEngine.Api` directly. When the project
+grows, Domain tests should be isolated in a dedicated
 `NexusEngine.Domain.Tests` project with no dependency on the Api layer.
+
+---
+
+## Sprint 3B -- NEXT
+
+### Task 3B-1: Optimistic Locking
+
+Version column on aggregates, retry on conflict.
+
+### Task 3B-2: Recovery
+
+Order Book rebuild at restart via event replay.
 
 ---
 
@@ -72,6 +87,7 @@ When the project grows, Domain tests should be isolated in a dedicated
 
 **Phase 1:** COMPLETE
 **Phase 2:** COMPLETE
-**Phase 3 (Sprint 3A):** Matching engine implemented
-**Phase 4:** WebSocket real-time -- next
+**Phase 3 (Sprint 3A):** COMPLETE
+**Phase 3 (Sprint 3B):** Pending
+**Phase 4:** WebSocket real-time
 **Phase 5:** Observability and Polish
