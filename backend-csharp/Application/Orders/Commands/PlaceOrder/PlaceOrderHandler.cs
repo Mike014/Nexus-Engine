@@ -73,7 +73,7 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         {
             try
             {
-                return await PersistAndPublish(command, order, orderId, matchResult, cancellationToken);
+                return await PersistAndPublish(order, orderId, matchResult, command, cancellationToken);
             }
             catch (DbUpdateException ex) when (OptimisticConcurrencyHelper.IsUniqueConstraintViolation(ex))
             {
@@ -95,41 +95,24 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
     }
 
     private async Task<Guid> PersistAndPublish(
-        PlaceOrderCommand command,
         Order order,
         Guid orderId,
         MatchResult matchResult,
+        PlaceOrderCommand command,
         CancellationToken cancellationToken)
     {
-        var freshAccount = await _uow.Accounts
+        var account = await _uow.Accounts
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == command.AccountId, cancellationToken);
 
         foreach (var validation in _validations)
-            validation.Validate(freshAccount, command);
-
-        var trackedAccount = _uow.Accounts.Local
-            .FirstOrDefault(a => a.Id == command.AccountId);
-
-        Account account;
-        if (trackedAccount != null)
-        {
-            trackedAccount.Balance = freshAccount!.Balance;
-            trackedAccount.ReservedBalance = freshAccount.ReservedBalance;
-            trackedAccount.UpdatedAt = freshAccount.UpdatedAt;
-            account = trackedAccount;
-        }
-        else
-        {
-            _uow.Accounts.Attach(freshAccount!);
-            account = freshAccount!;
-        }
+            validation.Validate(account, command);
 
         var reservationAmount = command.Side == "Buy"
             ? command.Quantity * command.Price
             : 0m;
 
-        account.ReservedBalance += reservationAmount;
+        account!.ReservedBalance += reservationAmount;
 
         var domainEvents = new List<DomainEvent>();
         var transactions = new List<Transaction>();
@@ -225,6 +208,7 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         account.LastEventVersion = version;
         account.UpdatedAt = DateTime.UtcNow;
 
+        _uow.Accounts.Update(account);
         _uow.Orders.Add(order);
 
         foreach (var evt in domainEvents)
