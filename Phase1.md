@@ -10,8 +10,7 @@ This document provides a comprehensive technical overview of Phase 1 (Foundation
 All core foundational objectives for Phase 1 have been successfully implemented and validated:
 
 * **[v] C# Backend Setup:** ASP.NET Core 8 Web API project configured with Swashbuckle OpenAPI.
-* **[v] Java Backend Setup:** Spring Boot 3.5.14 project initialized using Java 21, JPA, and Hibernate.
-* **[v] Docker Orchestration:** Multi-container ecosystem orchestrated via `docker-compose.yml` utilizing Docker Profiles (`--profile csharp` / `--profile java`) to seamlessly switch the active transactional backend.
+* **[v] Docker Orchestration:** Multi-container ecosystem orchestrated via `docker-compose.yml` utilizing Docker Profiles.
 * **[v] Frontend Environment:** React + TypeScript single-page application built via Vite, containerized and served using Nginx as a reverse proxy.
 * **[v] Database Schema & Strategy:** PostgreSQL instance containing an immutable Event Store and read-model projection tables (`accounts`, `orders`, `transactions`).
 * **[v] Core Transactional Workflows:** * `CreateAccount`: Atomic dual-write writing to the event store and updating synchronous projections.
@@ -24,9 +23,6 @@ All core foundational objectives for Phase 1 have been successfully implemented 
 ## 2. Architectural Paradigm & Design Patterns
 
 The system implements an audio-first/high-performance transactional engine adhering to advanced structural patterns to ensure strict decoupling, auditability, and scalability.
-
-### Dual-Backend Specular Design
-The platform maintains two separate, independent implementations of the identical transactional domain: ASP.NET Core and Spring Boot. Both backends share a single, unified database schema. Isolation of computational logic from data storage allows runtime flexibility, performance benchmarking, and architectural specularity.
 
 ### Event Sourcing (Source of Truth)
 State mutation is captured not by overwriting an existing record, but by appending immutable, fine-grained business facts to an explicit Event Store (`domain_events`). 
@@ -93,8 +89,7 @@ builder.HasIndex(e => new { e.AggregateId, e.AggregateVersion })
 
 ### Schema Management & Sync
 
-* **C# as Master:** EF Core migrations act as the single source of truth for the database schema.
-* **Java Validation:** Hibernate is constrained with `ddl-auto=validate`, ensuring it verifies schema compatibility upon application startup without attempting schema alterations.
+* **EF Core Migrations:** EF Core migrations act as the single source of truth for the database schema.
 
 ---
 
@@ -102,7 +97,7 @@ builder.HasIndex(e => new { e.AggregateId, e.AggregateVersion })
 
 * **Dockerfiles:** Multi-stage build recipes deployed across all components to isolate development environments, caching intermediate build stages and spitting out highly lightweight, secure runtime images.
 * **`docker-compose.yml`:** Coordinates service meshes, internal virtual networking, ports, environment variables, and isolation using Docker Profiles.
-* **`nginx.conf`:** Configured as a high-performance reverse proxy. It serves the React static files and routes incoming traffic based on request URIs (`/api/v1/csharp` or `/api/v1/java`) into the hidden inner container network, while seamlessly resolving CORS constraints.
+* **`nginx.conf`:** Configured as a high-performance reverse proxy. It serves the React static files and routes incoming traffic into the hidden inner container network, while seamlessly resolving CORS constraints.
 * **Makefile:** Acts as a uniform CLI layer to encapsulate long-form Docker or system operations into clean, memorable developer tasks (e.g., `make build`, `make up`).
 
 ---
@@ -183,20 +178,6 @@ dotnet ef database update
 
 # Force clean project compilation bypassing incremental build engine
 dotnet build --no-incremental
-
-```
-
-### Java / Spring Boot 3.x Backend Initialization
-
-```powershell
-# Extract project initialized from start.spring.io via PowerShell
-Expand-Archive -Path demo.zip -DestinationPath . -Force
-Remove-Item demo.zip
-Move-Item nexus-engine/* .
-Remove-Item nexus-engine
-
-# Package and compile Java application skipping automated test execution
-./mvnw.cmd package -DskipTests
 
 ```
 

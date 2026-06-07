@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NexusEngine.Api.Infrastructure.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NexusEngine.Api.Infrastructure.Migrations
 {
     [DbContext(typeof(NexusDbContext))]
-    partial class NexusDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260525074915_AddOrderSymbolAndRemainingQuantity")]
+    partial class AddOrderSymbolAndRemainingQuantity
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -188,8 +191,7 @@ namespace NexusEngine.Api.Infrastructure.Migrations
                         .HasColumnName("quantity");
 
                     b.Property<decimal>("RemainingQuantity")
-                        .HasColumnType("numeric(18, 8)")
-                        .HasColumnName("remaining_quantity");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Side")
                         .IsRequired()
@@ -205,9 +207,7 @@ namespace NexusEngine.Api.Infrastructure.Migrations
 
                     b.Property<string>("Symbol")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("symbol");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

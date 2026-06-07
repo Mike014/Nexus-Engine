@@ -28,7 +28,10 @@
 // ============================================================================
 
 using Microsoft.EntityFrameworkCore;
+using NexusEngine.Api.Application.Abstractions;
+using NexusEngine.Api.Infrastructure.Idempotency;
 using NexusEngine.Api.Infrastructure.Persistence;
+using NexusEngine.Api.Application.Orders.Validation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,6 +65,16 @@ builder.Services.AddDbContext<NexusDbContext>(options =>
         );
     });
 });
+
+builder.Services.AddScoped<INexusUnitOfWork, NexusUnitOfWork>();
+
+// Idempotency Filter -- POST /api/orders
+builder.Services.AddScoped<IdempotencyFilter>();
+
+// Strategy Pattern -- Order Validation
+builder.Services.AddScoped<IOrderValidationStrategy, AccountExistsValidation>();
+builder.Services.AddScoped<IOrderValidationStrategy, AccountActiveValidation>();
+builder.Services.AddScoped<IOrderValidationStrategy, SufficientBalanceValidation>();
 
 var app = builder.Build();
 

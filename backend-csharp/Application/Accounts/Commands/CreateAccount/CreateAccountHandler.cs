@@ -7,37 +7,28 @@
 // Implements the MediatR request handler to execute the CreateAccountCommand workflow.
 //
 // ARCHITECTURAL DOCUMENTATION:
-// - MediatR Request Handler Pattern:
-//   Implements 'IRequestHandler<CreateAccountCommand, Guid>'. It decouples command 
-//   definitions from their business execution engines, eliminating manual DI registrations.
-// - Application-Side ID Generation:
-//   Instantiates the unique tracking identifier ('Guid.NewGuid()') within the application 
-//   layer prior to persistence. This allows the structural alignment of immutable data log
-//   entries (Domain Events) and current state representations (Projections) under identical tracking metrics.
+// - Dependency Rule fix (ADR-006):
+//   Depends on INexusUnitOfWork instead of NexusDbContext directly.
+//   The Application layer is now fully decoupled from Infrastructure.
 // - Event Sourcing / Projection Dual-Write Invariant:
-//   Co-ordinates an atomic persistence sequence. It instantiates an unalterable history log 
-//   entry ('DomainEvent') encapsulating serialized parameters, alongside a optimized read-side 
-//   projection ('Account'). Both records are attached to the unit of work tracking pool and 
-//   committed within an implicit transactional boundary upon executing 'SaveChangesAsync()'.
+//   DomainEvent and Account projection written in the same transaction
+//   via SaveChangesAsync. Atomic -- either both succeed or both fail.
 // ============================================================================
 
 namespace NexusEngine.Api.Application.Accounts.Commands.CreateAccount;
 
-using System;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using MediatR;
+using NexusEngine.Api.Application.Abstractions;
 using NexusEngine.Api.Domain.Entities;
-using NexusEngine.Api.Infrastructure.Persistence;
 
 public class CreateAccountHandler : IRequestHandler<CreateAccountCommand, Guid>
 {
-    private readonly NexusDbContext _db;
+    private readonly INexusUnitOfWork _uow;
 
-    public CreateAccountHandler(NexusDbContext db)
+    public CreateAccountHandler(INexusUnitOfWork uow)
     {
-        _db = db;
+        _uow = uow;
     }
 
     public async Task<Guid> Handle(
@@ -71,10 +62,10 @@ public class CreateAccountHandler : IRequestHandler<CreateAccountCommand, Guid>
             LastEventVersion = 1
         };
 
-        _db.DomainEvents.Add(domainEvent);
-        _db.Accounts.Add(account);
-        
-        await _db.SaveChangesAsync(cancellationToken);
+        _uow.DomainEvents.Add(domainEvent);
+        _uow.Accounts.Add(account);
+
+        await _uow.SaveChangesAsync(cancellationToken);
 
         return accountId;
     }

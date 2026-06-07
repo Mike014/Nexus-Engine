@@ -8,12 +8,12 @@
 //
 // CLASS DOCUMENTATION:
 // - GetAccountHandler: Executes the read-side query against the Account projection table.
-//   Reads directly from the NexusDbContext read model (accounts table).
+//   Reads directly from the read model (accounts table).
 //   Never touches the Event Store (domain_events) -- projections exist precisely
 //   to avoid replaying events on every read.
 //
 // MEMBER DOCUMENTATION:
-// - _db: Injected NexusDbContext. Used in read-only mode via AsNoTracking().
+// - _uow: Injected INexusUnitOfWork -- decoupled from Infrastructure (ADR-006 fix).
 // - Handle: Queries the accounts projection by ID. Returns null if not found,
 //   which the Controller translates to HTTP 404 NotFound.
 //   AsNoTracking disables EF Core change tracking -- no state modifications
@@ -24,22 +24,22 @@ namespace NexusEngine.Api.Application.Accounts.Queries.GetAccount;
 
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using NexusEngine.Api.Infrastructure.Persistence;
+using NexusEngine.Api.Application.Abstractions;
 
 public class GetAccountHandler : IRequestHandler<GetAccountQuery, AccountDto?>
 {
-    private readonly NexusDbContext _db;
+    private readonly INexusUnitOfWork _uow;
 
-    public GetAccountHandler(NexusDbContext db)
+    public GetAccountHandler(INexusUnitOfWork uow)
     {
-        _db = db;
+        _uow = uow;
     }
 
     public async Task<AccountDto?> Handle(
         GetAccountQuery query,
         CancellationToken cancellationToken)
     {
-        var account = await _db.Accounts
+        var account = await _uow.Accounts
             .AsNoTracking()
             .FirstOrDefaultAsync(
                 a => a.Id == query.AccountId,

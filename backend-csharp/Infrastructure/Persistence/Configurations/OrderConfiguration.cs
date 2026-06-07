@@ -44,6 +44,11 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasColumnName("account_id")
             .IsRequired();
 
+        builder.Property(o => o.Symbol)
+            .HasColumnName("symbol")
+            .HasMaxLength(20)
+            .IsRequired();
+
         builder.Property(o => o.Side)
             .HasColumnName("side")
             .HasMaxLength(4)
@@ -57,6 +62,11 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.Quantity)
             .HasColumnName("quantity")
             .HasColumnType("numeric(18,8)")
+            .IsRequired();
+
+        builder.Property(o => o.RemainingQuantity)
+            .HasColumnName("remaining_quantity")
+            .HasColumnType("numeric(18, 8)")
             .IsRequired();
 
         builder.Property(o => o.FilledQuantity)
