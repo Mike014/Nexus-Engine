@@ -51,6 +51,12 @@ builder.Host.UseSerilog((context, services, config) =>
           .Enrich.WithThreadId();
 });
 
+// Bind to PORT env var for Railway -- default 8080 for local dev
+builder.WebHost.ConfigureKestrel(options => { });
+builder.WebHost.UseUrls(
+    $"http://0.0.0.0:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}"
+);
+
 // --- Services Registration Layer ---
 
 builder.Services.AddControllers();
