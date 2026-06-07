@@ -19,6 +19,8 @@
 // - PlaceOrder: POST /api/orders. Validates input, dispatches PlaceOrderCommand.
 //   Returns HTTP 201 Created with orderId, 400 on invalid input or business rule
 //   violation, 404 if account not found, 409 Conflict on concurrent modification.
+// - GetOrders: GET /api/orders?accountId={id}. Dispatches GetOrdersQuery.
+//   Returns HTTP 200 with list of OrderDto, 400 if accountId is empty.
 // ============================================================================
 
 namespace NexusEngine.Api.Controllers;
@@ -28,6 +30,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NexusEngine.Api.Application.Orders.Commands.PlaceOrder;
+using NexusEngine.Api.Application.Orders.Queries.GetOrders;
+using NexusEngine.Api.Infrastructure.Idempotency;
 
 [ApiController]
 [Route("api/orders")]
@@ -41,6 +45,7 @@ public class OrdersController : ControllerBase
     }
 
     [HttpPost]
+    [ServiceFilter(typeof(IdempotencyFilter))]
     public async Task<IActionResult> PlaceOrder(
         [FromBody] PlaceOrderRequest request,
         CancellationToken cancellationToken)
@@ -90,6 +95,21 @@ public class OrdersController : ControllerBase
         {
             return Conflict("Concurrent modification detected. Please retry.");
         }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetOrders(
+        [FromQuery] Guid accountId,
+        CancellationToken cancellationToken)
+    {
+        if (accountId == Guid.Empty)
+            return BadRequest("AccountId is required.");
+
+        var orders = await _mediator.Send(
+            new GetOrdersQuery(accountId),
+            cancellationToken);
+
+        return Ok(orders);
     }
 }
 
