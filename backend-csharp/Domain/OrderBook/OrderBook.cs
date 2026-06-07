@@ -22,6 +22,8 @@
 //   matches against asks where taker price >= ask price. For sell orders,
 //   matches against bids where taker price <= bid price. Returns all
 //   trades produced. Unmatched quantity is added to the resting book.
+// - RemoveOrder(): Removes a resting order from the book. Throws
+//   InvalidOperationException if the price level or order is not found.
 // ============================================================================
 
 namespace NexusEngine.Domain.OrderBook;
@@ -119,6 +121,37 @@ public class OrderBook
                     _bids.Remove(bestBid.Key);
                 }
             }
+        }
+    }
+
+    public void RemoveOrder(Order order)
+    {
+        var book = order.Side.Equals("Buy", StringComparison.OrdinalIgnoreCase)
+            ? _bids
+            : _asks;
+
+        if (!book.TryGetValue(order.Price, out var queue))
+        {
+            throw new InvalidOperationException(
+                $"Price level {order.Price} not found in order book.");
+        }
+
+        var initialCount = queue.Count;
+        var newQueue = new Queue<Order>(queue.Where(o => o.Id != order.Id));
+
+        if (newQueue.Count == initialCount)
+        {
+            throw new InvalidOperationException(
+                $"Order {order.Id} not found in order book at price level {order.Price}.");
+        }
+
+        if (newQueue.Count == 0)
+        {
+            book.Remove(order.Price);
+        }
+        else
+        {
+            book[order.Price] = newQueue;
         }
     }
 

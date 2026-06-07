@@ -163,4 +163,50 @@ public class OrderBookTests
         Assert.Equal(102m, result.Trades[1].Price);
         Assert.Equal(3m, result.Trades[1].Quantity);
     }
+
+    [Fact]
+    public void RemoveOrder_SingleOrder_RemovedAndPriceLevelCleared()
+    {
+        // Arrange
+        var book = new NexusEngine.Domain.OrderBook.OrderBook("TEST");
+        var order = CreateOrder(Guid.NewGuid(), "Buy", 100m, 10m, 10m);
+        book.Match(order);
+
+        // Act
+        book.RemoveOrder(order);
+
+        // Assert
+        Assert.DoesNotContain(100m, book.Bids.Keys);
+    }
+
+    [Fact]
+    public void RemoveOrder_MultipleOrdersAtSamePrice_OnlyTargetRemoved()
+    {
+        // Arrange
+        var book = new NexusEngine.Domain.OrderBook.OrderBook("TEST");
+        var keepOrder = CreateOrder(Guid.NewGuid(), "Buy", 100m, 5m, 5m);
+        var removeOrder = CreateOrder(Guid.NewGuid(), "Buy", 100m, 3m, 3m);
+        book.Match(keepOrder);
+        book.Match(removeOrder);
+
+        // Act
+        book.RemoveOrder(removeOrder);
+
+        // Assert
+        Assert.Contains(100m, book.Bids.Keys);
+        Assert.Contains(keepOrder, book.Bids[100m]);
+        Assert.DoesNotContain(removeOrder, book.Bids[100m]);
+    }
+
+    [Fact]
+    public void RemoveOrder_OrderNotInBook_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var book = new NexusEngine.Domain.OrderBook.OrderBook("TEST");
+        var order = CreateOrder(Guid.NewGuid(), "Buy", 100m, 10m, 10m);
+
+        // Act & Assert
+        var ex = Assert.Throws<InvalidOperationException>(() => book.RemoveOrder(order));
+        Assert.Contains("not found", ex.Message);
+    }
 }

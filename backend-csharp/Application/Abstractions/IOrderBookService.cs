@@ -20,6 +20,8 @@
 //   is automatically added to the resting book.
 // - AddOrder(): Places an order directly into the book without explicit
 //   match result handling. The matching engine processes it internally.
+// - RemoveOrder(): Removes a resting order from the book. Throws
+//   InvalidOperationException if the price level or order is not found.
 // ============================================================================
 
 namespace NexusEngine.Application.Abstractions;
@@ -32,4 +34,6 @@ public interface IOrderBookService
     MatchResult Match(Order order);
 
     void AddOrder(Order order);
+
+    void RemoveOrder(Order order);
 }

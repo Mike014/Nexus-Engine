@@ -11,12 +11,15 @@
 // CLASS DOCUMENTATION:
 // - OrderBookService: Singleton service wrapping a single Domain.OrderBook
 //   instance configured for the "BTC/USD" trading pair. All methods delegate
-//   directly to the inner OrderBook without additional logic.
+//   directly to the inner OrderBook without additional logic. Thread-safe
+//   via instance-level locking.
 //
 // MEMBER DOCUMENTATION:
 // - _orderBook: The underlying domain matching engine instance.
+// - _lock: Synchronization guard for singleton thread safety.
 // - Match(): Delegates to Domain.OrderBook.Match(), returning all trades.
 // - AddOrder(): Delegates to Domain.OrderBook.Match() to place an order.
+// - RemoveOrder(): Thread-safe removal of a resting order from the book.
 // ============================================================================
 
 namespace NexusEngine.Infrastructure.OrderBook;
@@ -28,6 +31,7 @@ using NexusEngine.Domain.OrderBook;
 public class OrderBookService : IOrderBookService
 {
     private readonly NexusEngine.Domain.OrderBook.OrderBook _orderBook;
+    private readonly object _lock = new();
 
     public OrderBookService()
     {
@@ -42,5 +46,13 @@ public class OrderBookService : IOrderBookService
     public void AddOrder(Order order)
     {
         _orderBook.Match(order);
+    }
+
+    public void RemoveOrder(Order order)
+    {
+        lock (_lock)
+        {
+            _orderBook.RemoveOrder(order);
+        }
     }
 }
