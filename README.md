@@ -16,7 +16,9 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 ### **Documentation**
 - [Nexus Engine](https://docs.google.com/document/d/1_g5yustt4jpWbeg5F9ApeEEyxlwxWvcyzC5pAtTxDK4/edit?tab=t.0#heading=h.cfhcybw6q3iy)
 - [Network Architecture and Types (LAN & Infrastructure)](https://docs.google.com/document/d/1UEUlb57QonA9WqvT7gJie-Xfa9JTI5mgUw0x3dwKTYE/edit?tab=t.0#heading=h.8f3dvsb1xdnq)
-- [Phase1](https://github.com/Mike014/Nexus-Engine/blob/main/Phase1.md)
+- [Phase 1](https://github.com/Mike014/Nexus-Engine/blob/main/Phase1.md)
+- [Phase 2](https://github.com/Mike014/Nexus-Engine/blob/main/Phase2.md)
+
 ---
 
 ## What This Project Demonstrates
@@ -26,8 +28,10 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 - **Concurrency control** — progressive strategy: Pessimistic Locking (Phase 2) migrated to Optimistic Locking (Phase 3), documented as a conscious engineering decision.
 - **Atomic dual-write** — domain event and read-side projection written in the same database transaction. No inconsistent state possible.
 - **Event replay** — any aggregate's state can be reconstructed at any point in time by replaying its event stream.
+- **Idempotency** — duplicate requests are detected and short-circuited via `X-Idempotency-Key` header, preventing double order placement.
+- **Strategy Pattern** — order validation rules are encapsulated as independent, swappable strategies. Open to extension, closed to modification.
 - **Configurable business rules** — validation rules (limits, odds, fees) are externalized, not hardcoded.
-- **Real-time updates** — WebSocket push notifications via SignalR.
+- **Real-time updates** — WebSocket push notifications via SignalR (Phase 4).
 
 ---
 
@@ -39,13 +43,13 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 │              (TypeScript + Vite + nginx)            │
 └──────────────────────┬──────────────────────────────┘
                        │ HTTP + WebSocket
-┌─────────▼──────────┐
-│   Backend C#        │
-│   ASP.NET Core 8    │
-│   MediatR + EF Core │
-│   SignalR           │
-└─────────┬──────────┘
-          │
+              ┌────────▼────────────┐
+              │    Backend C#        │
+              │    ASP.NET Core 8    │
+              │    MediatR + EF Core │
+              │    SignalR           │
+              └────────┬────────────┘
+                       │
               ┌────────▼────────┐
               │   PostgreSQL 16  │
               │                 │
@@ -80,7 +84,7 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 - nginx (production serving)
 
 ### Infrastructure
-- Docker + Docker Compose (profiles for backend switching)
+- Docker + Docker Compose
 - GitHub Actions (CI pipeline with boot tests)
 
 ---
@@ -107,6 +111,8 @@ POST   /api/accounts              Create a new account
 GET    /api/accounts/{id}         Get current account state (from projection)
 POST   /api/accounts/{id}/deposit Deposit funds
 GET    /api/accounts/{id}/replay  Reconstruct account state from event stream
+POST   /api/orders                Place a new order
+GET    /api/orders?accountId={id} Get all orders for an account
 GET    /swagger                   Swagger UI
 ```
 
@@ -128,7 +134,10 @@ The in-memory order book lives inside the C# backend process.
 Read-side projections are updated in the same database transaction as the domain event write. Strong consistency, no lag between write and read model. Async projection (outbox pattern / LISTEN-NOTIFY) is documented as a future evolution.
 
 ### ADR-005: EF Core as schema master
-EF Core Migrations own the schema.
+EF Core Migrations own the schema. All columns mapped explicitly in snake_case via `IEntityTypeConfiguration`.
+
+### ADR-006: INexusUnitOfWork abstraction
+Handlers depend on `INexusUnitOfWork` interface, never on `NexusDbContext` directly. The Application layer is fully decoupled from Infrastructure. Concrete implementation lives in the Infrastructure layer and is registered as Scoped in the DI container.
 
 ---
 
@@ -141,12 +150,14 @@ EF Core Migrations own the schema.
 - Account CRUD with Event Sourcing
 - Event replay endpoint
 
-### Phase 2 — Transactional Engine 🔄
-- Place order endpoint
-- Validation with Strategy Pattern
-- Atomic balance updates via events
+### Phase 2 — Transactional Engine ✅
+- `INexusUnitOfWork` abstraction (ADR-006 fix)
+- Place order endpoint (`POST /api/orders`)
+- Validation with Strategy Pattern (account exists, active, sufficient balance)
 - Pessimistic Locking (`SELECT FOR UPDATE`)
-- Request idempotency (idempotency key)
+- Request idempotency (`X-Idempotency-Key` header)
+- Transactions projection (atomic write on order placement)
+- Get orders endpoint (`GET /api/orders?accountId={id}`)
 
 ### Phase 3 — Order Book and Matching
 - Buy/sell matching engine (price-time priority, in-memory)
@@ -161,7 +172,7 @@ EF Core Migrations own the schema.
 - React dashboard with live data
 
 ### Phase 5 — Observability and Polish
-- Structured logging (Serilog / Logback)
+- Structured logging (Serilog)
 - Health checks
 - Architecture diagrams and ADR documentation
 - Event replay demonstration
@@ -177,6 +188,7 @@ Nexus Engine models a betting exchange (inspired by Betfair) and a financial tra
 - **Lay = Sell** — "I offer the counterpart at odds 3.0"
 - **Price-time priority matching** — orders matched by best price first, FIFO at equal price
 - **Partial fills** — an order can be partially matched, remainder stays in the book
+- **Reserved balance** — funds are reserved (not deducted) when a Buy order is placed; deducted only on fill
 - **Configurable commission** — exchange fee on net winnings, never on stake
 
 ---
@@ -187,6 +199,3 @@ Nexus Engine models a betting exchange (inspired by Betfair) and a financial tra
 - [Betfair Exchange API](https://developer.betfair.com) — domain model reference
 - [Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) — Martin Fowler
 - [CQRS](https://martinfowler.com/bliki/CQRS.html) — Martin Fowler
-
----
-
