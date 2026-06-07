@@ -28,8 +28,11 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 - **Concurrency control** — progressive strategy: Pessimistic Locking (Phase 2) migrated to Optimistic Locking (Phase 3), documented as a conscious engineering decision.
 - **Atomic dual-write** — domain event and read-side projection written in the same database transaction. No inconsistent state possible.
 - **Event replay** — any aggregate's state can be reconstructed at any point in time by replaying its event stream.
-- **Idempotency** — duplicate requests are detected and short-circuited via `X-Idempotency-Key` header, preventing double order placement.
+- **Order Book** — in-memory SortedDictionary, price-time priority FIFO matching, symbol BTC/USD. Orders match when taker bid >= best ask, or taker ask <= best bid.
+- **Optimistic Locking** — version conflict detection via UNIQUE constraint on (aggregate_id, aggregate_version) in domain_events. Retry with random jitter (max 3 attempts, 50-300ms).
+- **Order Book Recovery** — IHostedService reloads Pending and PartiallyFilled orders at startup via IServiceScopeFactory pattern.
 - **Strategy Pattern** — order validation rules are encapsulated as independent, swappable strategies. Open to extension, closed to modification.
+- **Idempotency** — X-Idempotency-Key header on POST /api/orders prevents duplicate placement.
 - **Configurable business rules** — validation rules (limits, odds, fees) are externalized, not hardcoded.
 - **Real-time updates** — WebSocket push notifications via SignalR (Phase 4).
 
@@ -111,9 +114,10 @@ POST   /api/accounts              Create a new account
 GET    /api/accounts/{id}         Get current account state (from projection)
 POST   /api/accounts/{id}/deposit Deposit funds
 GET    /api/accounts/{id}/replay  Reconstruct account state from event stream
-POST   /api/orders                Place a new order
-GET    /api/orders?accountId={id} Get all orders for an account
-GET    /swagger                   Swagger UI
+POST   /api/orders                                   Place a new order
+GET    /api/orders?accountId={id}                    Get all orders for an account
+DELETE /api/orders/{orderId}?accountId={id}           Cancel a pending or partially filled order
+GET    /swagger                                      Swagger UI
 ```
 
 ---
@@ -159,12 +163,14 @@ Handlers depend on `INexusUnitOfWork` interface, never on `NexusDbContext` direc
 - Transactions projection (atomic write on order placement)
 - Get orders endpoint (`GET /api/orders?accountId={id}`)
 
-### Phase 3 — Order Book and Matching
-- Buy/sell matching engine (price-time priority, in-memory)
+### Phase 3 — Order Book and Matching ✅
+- Buy/sell matching engine (price-time priority, in-memory SortedDictionary, symbol BTC/USD)
 - Partial order fills
 - Order lifecycle: Pending → PartiallyFilled → Filled / Cancelled
-- Migration: Pessimistic → Optimistic Locking
-- Order book recovery on restart
+- Migration: Pessimistic → Optimistic Locking (version conflict via UNIQUE constraint on domain_events, retry with jitter)
+- Idempotency: X-Idempotency-Key header on POST /api/orders
+- Strategy Pattern: order validation (AccountExists, AccountActive, SufficientBalance)
+- Order book recovery on restart (IHostedService reloads Pending and PartiallyFilled orders)
 
 ### Phase 4 — Real-time
 - SignalR push

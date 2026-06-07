@@ -71,15 +71,29 @@ grows, Domain tests should be isolated in a dedicated
 
 ---
 
-## Sprint 3B -- NEXT
+## Sprint 3B -- COMPLETED
 
-### Task 3B-1: Optimistic Locking
+### Task 3B-1: Optimistic Locking -- COMPLETED
 
-Version column on aggregates, retry on conflict.
+- Created `Application/Common/OptimisticConcurrencyHelper.cs` -- static helper, detects PostgreSQL error 23505
+- Modified `PlaceOrderHandler.cs` -- removed SELECT FOR UPDATE, added retry loop max 3 attempts, random jitter 50-300ms
+- Modified `DepositFundsHandler.cs` -- added same retry loop pattern
+- On retry exhaustion: throws `InvalidOperationException` with user-facing message
+- Build: 0 warnings, 0 errors. Tests: 10/10 passed.
 
-### Task 3B-2: Recovery
+### Task 3B-2: Recovery -- Order Book rebuild at restart -- COMPLETED
 
-Order Book rebuild at restart via event replay.
+- Created `Infrastructure/OrderBook/OrderBookRecoveryService.cs` -- IHostedService, queries Pending and PartiallyFilled orders at startup, reloads into singleton OrderBook via AddOrder
+- Uses `IServiceScopeFactory` pattern to resolve scoped INexusUnitOfWork from singleton context
+- Modified `Program.cs` -- registered `AddHostedService<OrderBookRecoveryService>()`
+- Build: 0 warnings, 0 errors. Tests: 12/12 passed.
+
+### Final test count: 12/12
+
+- 6 OrderBook matching tests
+- 3 RemoveOrder tests
+- 1 OptimisticConcurrencyHelper test
+- 2 Recovery tests
 
 ---
 
@@ -87,7 +101,6 @@ Order Book rebuild at restart via event replay.
 
 **Phase 1:** COMPLETE
 **Phase 2:** COMPLETE
-**Phase 3 (Sprint 3A):** COMPLETE
-**Phase 3 (Sprint 3B):** Pending
-**Phase 4:** WebSocket real-time
+**Phase 3:** COMPLETE
+**Phase 4:** WebSocket real-time -- next
 **Phase 5:** Observability and Polish
