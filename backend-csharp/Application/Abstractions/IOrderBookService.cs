@@ -22,6 +22,9 @@
 //   match result handling. The matching engine processes it internally.
 // - RemoveOrder(): Removes a resting order from the book. Throws
 //   InvalidOperationException if the price level or order is not found.
+// - GetSnapshot(): Returns the current state of the order book as an
+//   anonymous object with Bids (descending by price), Asks (ascending
+//   by price), and Symbol.
 // ============================================================================
 
 namespace NexusEngine.Application.Abstractions;
@@ -36,4 +39,6 @@ public interface IOrderBookService
     void AddOrder(Order order);
 
     void RemoveOrder(Order order);
+
+    object GetSnapshot();
 }

@@ -20,6 +20,7 @@
 // - Match(): Delegates to Domain.OrderBook.Match(), returning all trades.
 // - AddOrder(): Delegates to Domain.OrderBook.Match() to place an order.
 // - RemoveOrder(): Thread-safe removal of a resting order from the book.
+// - GetSnapshot(): Thread-safe snapshot of the current order book state.
 // ============================================================================
 
 namespace NexusEngine.Infrastructure.OrderBook;
@@ -53,6 +54,35 @@ public class OrderBookService : IOrderBookService
         lock (_lock)
         {
             _orderBook.RemoveOrder(order);
+        }
+    }
+
+    public object GetSnapshot()
+    {
+        lock (_lock)
+        {
+            var bids = _orderBook.Bids
+                .Select(b => new
+                {
+                    Price = b.Key,
+                    Quantity = b.Value.Sum(o => o.RemainingQuantity)
+                })
+                .ToList();
+
+            var asks = _orderBook.Asks
+                .Select(a => new
+                {
+                    Price = a.Key,
+                    Quantity = a.Value.Sum(o => o.RemainingQuantity)
+                })
+                .ToList();
+
+            return new
+            {
+                Symbol = _orderBook.Symbol,
+                Bids = bids,
+                Asks = asks
+            };
         }
     }
 }

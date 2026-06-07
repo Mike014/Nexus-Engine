@@ -10,8 +10,6 @@
 // - AccountsController: Thin HTTP routing boundary. Contains zero business logic.
 //   Responsibilities: parse HTTP request, validate input, build Command or Query,
 //   dispatch via MediatR, translate result to HTTP response.
-// - CreateAccountRequest: Public HTTP request DTO. Isolates the external API contract
-//   from the internal CreateAccountCommand. Serialization changes do not leak downstream.
 // - DepositFundsRequest: Public HTTP request DTO for deposit operations.
 //   Isolates the external amount field from the internal DepositFundsCommand.
 //
@@ -58,19 +56,9 @@ public class AccountsController : ControllerBase
 
     [HttpPost]
     public async Task<IActionResult> CreateAccount(
-        [FromBody] CreateAccountRequest request,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.OwnerName))
-            return BadRequest("OwnerName is required.");
-
-        if (string.IsNullOrWhiteSpace(request.Currency) || request.Currency.Length != 3)
-            return BadRequest("Currency must be a valid 3-character ISO 4217 code.");
-
-        var command = new CreateAccountCommand(
-            request.OwnerName.Trim(),
-            request.Currency.ToUpperInvariant()
-        );
+        var command = new CreateAccountCommand("Default", "USD");
 
         try
         {
@@ -147,10 +135,5 @@ public class AccountsController : ControllerBase
         return Ok(result);
     }
 }
-
-public record CreateAccountRequest(
-    string OwnerName,
-    string Currency
-);
 
 public record DepositFundsRequest(decimal Amount);

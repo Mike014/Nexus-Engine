@@ -81,7 +81,8 @@ public class OrderBook
             var maker = bestAsk.Value.Peek();
             var matchQuantity = Math.Min(taker.RemainingQuantity, maker.RemainingQuantity);
 
-            trades.Add(new Trade(maker.Id, maker.Price, matchQuantity));
+            trades.Add(new Trade(maker.Id, maker.Price, matchQuantity,
+                taker.Id, maker.Id, DateTime.UtcNow));
 
             taker.RemainingQuantity -= matchQuantity;
             maker.RemainingQuantity -= matchQuantity;
@@ -108,7 +109,8 @@ public class OrderBook
             var maker = bestBid.Value.Peek();
             var matchQuantity = Math.Min(taker.RemainingQuantity, maker.RemainingQuantity);
 
-            trades.Add(new Trade(maker.Id, maker.Price, matchQuantity));
+            trades.Add(new Trade(maker.Id, maker.Price, matchQuantity,
+                maker.Id, taker.Id, DateTime.UtcNow));
 
             taker.RemainingQuantity -= matchQuantity;
             maker.RemainingQuantity -= matchQuantity;
