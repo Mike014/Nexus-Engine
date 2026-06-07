@@ -37,7 +37,7 @@ export interface NexusHubState {
   connected: boolean
 }
 
-const HUB_URL = 'http://localhost:5000/hubs/nexus'
+const HUB_URL = `${import.meta.env.VITE_API_URL ?? "http://localhost:5000"}/hubs/nexus`
 
 export function useNexusHub(): NexusHubState {
   const [trades, setTrades] = useState<TradeData[]>([])
