@@ -68,13 +68,11 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         if (side == "Buy")
         {
             account.ReservedBalance -= amount;
-            account.Balance -= amount;
         }
         else
         {
             account.Balance += amount;
         }
-
         account.UpdatedAt = DateTime.UtcNow;
     }
 
@@ -127,16 +125,16 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
 
         var order = new Order
         {
-            Id                = orderId,
-            AccountId         = command.AccountId,
-            Symbol            = command.Symbol,
-            Side              = command.Side,
-            Quantity          = command.Quantity,
+            Id = orderId,
+            AccountId = command.AccountId,
+            Symbol = command.Symbol,
+            Side = command.Side,
+            Quantity = command.Quantity,
             RemainingQuantity = command.Quantity,
-            FilledQuantity    = 0,
-            Price             = command.Price,
-            Status            = "Pending",
-            CreatedAt         = DateTime.UtcNow
+            FilledQuantity = 0,
+            Price = command.Price,
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow
         };
 
         var matchResult = _orderBookService.Match(order);
@@ -166,14 +164,14 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
             version++;
             var matchedEvent = new DomainEvent
             {
-                AggregateId      = command.AccountId,
-                AggregateType    = "Account",
-                EventType        = "OrderMatched",
+                AggregateId = command.AccountId,
+                AggregateType = "Account",
+                EventType = "OrderMatched",
                 AggregateVersion = version,
-                Payload          = JsonSerializer.Serialize(new
+                Payload = JsonSerializer.Serialize(new
                 {
-                    OrderId       = orderId,
-                    MakerOrderId  = trade.MakerOrderId,
+                    OrderId = orderId,
+                    MakerOrderId = trade.MakerOrderId,
                     trade.Price,
                     trade.Quantity
                 })
@@ -182,12 +180,12 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
 
             transactions.Add(new Transaction
             {
-                Id         = Guid.NewGuid(),
-                AccountId  = command.AccountId,
-                OrderId    = orderId,
-                Type       = "OrderMatched",
-                Amount     = trade.Price * trade.Quantity,
-                EventId    = matchedEvent.Id,
+                Id = Guid.NewGuid(),
+                AccountId = command.AccountId,
+                OrderId = orderId,
+                Type = "OrderMatched",
+                Amount = trade.Price * trade.Quantity,
+                EventId = matchedEvent.Id,
                 OccurredAt = DateTime.UtcNow
             });
         }
@@ -207,13 +205,13 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         version++;
         var placedEvent = new DomainEvent
         {
-            AggregateId      = command.AccountId,
-            AggregateType    = "Account",
-            EventType        = "OrderPlaced",
+            AggregateId = command.AccountId,
+            AggregateType = "Account",
+            EventType = "OrderPlaced",
             AggregateVersion = version,
-            Payload          = JsonSerializer.Serialize(new
+            Payload = JsonSerializer.Serialize(new
             {
-                OrderId           = orderId,
+                OrderId = orderId,
                 command.Symbol,
                 command.Side,
                 command.Quantity,
@@ -225,12 +223,12 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
 
         transactions.Add(new Transaction
         {
-            Id         = Guid.NewGuid(),
-            AccountId  = command.AccountId,
-            OrderId    = orderId,
-            Type       = "OrderPlaced",
-            Amount     = -reservationAmount,
-            EventId    = placedEvent.Id,
+            Id = Guid.NewGuid(),
+            AccountId = command.AccountId,
+            OrderId = orderId,
+            Type = "OrderPlaced",
+            Amount = -reservationAmount,
+            EventId = placedEvent.Id,
             OccurredAt = DateTime.UtcNow
         });
 
