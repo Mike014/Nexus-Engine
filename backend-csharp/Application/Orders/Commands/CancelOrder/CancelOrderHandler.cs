@@ -16,6 +16,7 @@
 // MEMBER DOCUMENTATION:
 // - _uow: Injected INexusUnitOfWork -- single unit of work for atomic persistence.
 // - _orderBookService: Injected IOrderBookService singleton -- in-memory matching engine.
+// - _mediator: Injected IMediator -- publishes notifications after successful persistence.
 // - Handle: Loads the order, validates ownership and cancellable status,
 //   removes from order book, applies refund, persists the cancellation event.
 //   Throws KeyNotFoundException if order or account does not exist.
@@ -27,6 +28,7 @@ namespace NexusEngine.Api.Application.Orders.Commands.CancelOrder;
 using System.Text.Json;
 using MediatR;
 using NexusEngine.Api.Application.Abstractions;
+using NexusEngine.Api.Application.Orders.Notifications;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
 
@@ -34,13 +36,16 @@ public class CancelOrderHandler : IRequestHandler<CancelOrderCommand, Unit>
 {
     private readonly INexusUnitOfWork _uow;
     private readonly IOrderBookService _orderBookService;
+    private readonly IMediator _mediator;
 
     public CancelOrderHandler(
         INexusUnitOfWork uow,
-        IOrderBookService orderBookService)
+        IOrderBookService orderBookService,
+        IMediator mediator)
     {
         _uow = uow;
         _orderBookService = orderBookService;
+        _mediator = mediator;
     }
 
     public async Task<Unit> Handle(
@@ -100,6 +105,14 @@ public class CancelOrderHandler : IRequestHandler<CancelOrderCommand, Unit>
 
         _uow.DomainEvents.Add(domainEvent);
         await _uow.SaveChangesAsync(cancellationToken);
+
+        await _mediator.Publish(
+            new OrderBookChangedNotification(order.Symbol), cancellationToken);
+
+        await _mediator.Publish(
+            new BalanceChangedNotification(
+                command.AccountId, account.Balance, account.ReservedBalance),
+            cancellationToken);
 
         return Unit.Value;
     }

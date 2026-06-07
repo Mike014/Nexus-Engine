@@ -29,6 +29,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Application.Abstractions;
+using NexusEngine.Api.Hubs;
 using NexusEngine.Api.Infrastructure.Idempotency;
 using NexusEngine.Api.Infrastructure.Persistence;
 using NexusEngine.Api.Application.Orders.Validation;
@@ -40,6 +41,7 @@ var builder = WebApplication.CreateBuilder(args);
 // --- Services Registration Layer ---
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -82,6 +84,18 @@ builder.Services.AddScoped<IOrderValidationStrategy, SufficientBalanceValidation
 builder.Services.AddSingleton<IOrderBookService, OrderBookService>();
 builder.Services.AddHostedService<OrderBookRecoveryService>();
 
+// CORS policy -- allows frontend at localhost:3000 to connect via SignalR
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("NexusPolicy", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 var app = builder.Build();
 
 // --- Startup Migration Layer ---
@@ -114,7 +128,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseCors("NexusPolicy");
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<NexusHub>("/hubs/nexus");
 
 app.Run();

@@ -24,6 +24,7 @@
 // - _uow: Injected INexusUnitOfWork -- single unit of work for atomic persistence.
 // - _validations: Injected collection of validation strategies -- Open/Closed Principle.
 // - _orderBookService: Injected IOrderBookService singleton -- in-memory matching engine.
+// - _mediator: Injected IMediator -- publishes notifications after successful persistence.
 // - Handle: Validates, matches via OrderBook, processes trades, persists atomically.
 // - ApplyTradeToAccount: Adjusts account balance and reserved balance based on trade side.
 //   Throws KeyNotFoundException if account or maker order does not exist.
@@ -38,6 +39,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Application.Abstractions;
 using NexusEngine.Api.Application.Common;
+using NexusEngine.Api.Application.Orders.Notifications;
 using NexusEngine.Api.Application.Orders.Validation;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
@@ -47,15 +49,18 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
     private readonly INexusUnitOfWork _uow;
     private readonly IEnumerable<IOrderValidationStrategy> _validations;
     private readonly IOrderBookService _orderBookService;
+    private readonly IMediator _mediator;
 
     public PlaceOrderHandler(
         INexusUnitOfWork uow,
         IEnumerable<IOrderValidationStrategy> validations,
-        IOrderBookService orderBookService)
+        IOrderBookService orderBookService,
+        IMediator mediator)
     {
         _uow = uow;
         _validations = validations;
         _orderBookService = orderBookService;
+        _mediator = mediator;
     }
 
     private static void ApplyTradeToAccount(Account account, string side, decimal amount)
@@ -241,6 +246,20 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
             _uow.Transactions.Add(txn);
 
         await _uow.SaveChangesAsync(cancellationToken);
+
+        if (matchResult.Trades.Count > 0)
+        {
+            await _mediator.Publish(
+                new TradeExecutedNotification(matchResult.Trades), cancellationToken);
+        }
+
+        await _mediator.Publish(
+            new OrderBookChangedNotification(command.Symbol), cancellationToken);
+
+        await _mediator.Publish(
+            new BalanceChangedNotification(
+                command.AccountId, account.Balance, account.ReservedBalance),
+            cancellationToken);
 
         return orderId;
     }
