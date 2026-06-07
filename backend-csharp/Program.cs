@@ -135,11 +135,8 @@ using (var scope = app.Services.CreateScope())
 
 // --- HTTP Request Middleware Pipeline Layer ---
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors("NexusPolicy");
 app.UseAuthorization();
