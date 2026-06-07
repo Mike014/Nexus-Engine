@@ -126,26 +126,11 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// --- Startup Migration Layer ---
-
-// Fix #10 -- MigrateAsync invece di Migrate, wrappato in try/catch.
-// Se la migration fallisce, il processo si arresta con un messaggio
-// esplicito invece di propagare un'eccezione non gestita.
+// Apply EF Core migrations automatically on startup (Railway PaaS pattern)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NexusDbContext>();
-    try
-    {
-        await db.Database.MigrateAsync();
-    }
-    catch (Exception ex)
-    {
-        var logger = scope.ServiceProvider
-            .GetRequiredService<ILogger<Program>>();
-        logger.LogCritical(ex,
-            "Database migration failed at startup. Application cannot start.");
-        throw;
-    }
+    await db.Database.MigrateAsync();
 }
 
 // --- HTTP Request Middleware Pipeline Layer ---
