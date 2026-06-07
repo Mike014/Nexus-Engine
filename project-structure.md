@@ -5,11 +5,13 @@ Nexus-Engine/
 ├── docker-compose.yml                   # Profili: csharp, frontend
 ├── Makefile                             # up-csharp, down, db-shell, logs-csharp
 ├── AGENTS.md                            # Guida per agent AI
-├── Phase1.md / Phase2.md / Phase3.md    # Roadmap
+├── .gitignore
+├── Phase1.md / Phase2.md / Phase3.md / Phase4.md
 ├── project-structure.md                 # Questo file
 ├── README.md
+├── nexus_e2e_test.py                    # Test E2E Selenium (Edge headless)
 │
-├── backend-csharp/                      # ▲ C# ASP.NET Core 8 — Clean Architecture
+├── backend-csharp/                      # ▲ C# ASP.NET Core 9 — Clean Architecture
 │   ├── Program.cs                       # Punto d'ingresso + DI composition root
 │   ├── NexusEngine.Api.csproj
 │   ├── Dockerfile / .dockerignore
@@ -22,6 +24,9 @@ Nexus-Engine/
 │   ├── Controllers/                     # 🟢 Presentation Layer
 │   │   ├── AccountsController.cs        # POST/GET /api/accounts, deposit, replay
 │   │   └── OrdersController.cs          # POST/GET/DELETE /api/orders
+│   │
+│   ├── Hubs/                            # 🆕 SignalR (Phase 4)
+│   │   └── NexusHub.cs                  # Endpoint /hubs/nexus
 │   │
 │   ├── Application/                     # 🔵 Application Layer (CQRS)
 │   │   ├── Abstractions/
@@ -51,7 +56,7 @@ Nexus-Engine/
 │   │       ├── Commands/
 │   │       │   ├── PlaceOrder/
 │   │       │   │   ├── PlaceOrderCommand.cs
-│   │       │   │   └── PlaceOrderHandler.cs      # Matching engine + retry
+│   │       │   │   └── PlaceOrderHandler.cs      # Matching engine + retry + notifiche
 │   │       │   └── CancelOrder/
 │   │       │       ├── CancelOrderCommand.cs
 │   │       │       └── CancelOrderHandler.cs     # Rimuove da OrderBook
@@ -60,11 +65,15 @@ Nexus-Engine/
 │   │       │       ├── GetOrdersQuery.cs
 │   │       │       ├── GetOrdersHandler.cs
 │   │       │       └── OrderDto.cs
-│   │       └── Validation/
-│   │           ├── IOrderValidationStrategy.cs       # Interfaccia Strategy
-│   │           ├── AccountExistsValidation.cs        # 1°: null check
-│   │           ├── AccountActiveValidation.cs        # 2°: status check
-│   │           └── SufficientBalanceValidation.cs    # 3°: saldo check
+│   │       ├── Validation/
+│   │       │   ├── IOrderValidationStrategy.cs       # Interfaccia Strategy
+│   │       │   ├── AccountExistsValidation.cs        # 1°: null check
+│   │       │   ├── AccountActiveValidation.cs        # 2°: status check
+│   │       │   └── SufficientBalanceValidation.cs    # 3°: saldo check
+│   │       └── Notifications/                    # 🆕 MediatR notifications (Phase 4)
+│   │           ├── TradeExecutedNotification.cs
+│   │           ├── OrderBookChangedNotification.cs
+│   │           └── BalanceChangedNotification.cs
 │   │
 │   ├── Domain/                         # 🟡 Domain Layer (entità pure)
 │   │   ├── Entities/
@@ -73,7 +82,7 @@ Nexus-Engine/
 │   │   │   ├── IdempotencyKey.cs       # Chiave idempotenza
 │   │   │   ├── Order.cs                # Proiezione ordine
 │   │   │   └── Transaction.cs          # Ledger contabile
-│   │   └── OrderBook/                  # 🆕 Matching Engine (dominio puro)
+│   │   └── OrderBook/                  # Matching Engine (dominio puro)
 │   │       ├── Trade.cs                # Record trade eseguito
 │   │       ├── MatchResult.cs          # Risultato match (trades + ordini residuali)
 │   │       └── OrderBook.cs            # Engine: price-time priority FIFO
@@ -81,9 +90,13 @@ Nexus-Engine/
 │   ├── Infrastructure/                 # 🟣 Infrastructure Layer
 │   │   ├── Idempotency/
 │   │   │   └── IdempotencyFilter.cs    # Action Filter (X-Idempotency-Key)
-│   │   ├── OrderBook/                  # 🆕 Implementazione Order Book
+│   │   ├── OrderBook/
 │   │   │   ├── OrderBookService.cs     # Singleton thread-safe con lock
 │   │   │   └── OrderBookRecoveryService.cs  # IHostedService: ricarica ordini all'avvio
+│   │   ├── Notifications/              # 🆕 Handlers SignalR (Phase 4)
+│   │   │   ├── TradeExecutedNotificationHandler.cs
+│   │   │   ├── OrderBookChangedNotificationHandler.cs
+│   │   │   └── BalanceChangedNotificationHandler.cs
 │   │   ├── Persistence/
 │   │   │   ├── NexusDbContext.cs       # EF Core DbContext
 │   │   │   ├── NexusUnitOfWork.cs      # Implementazione UoW
@@ -104,11 +117,14 @@ Nexus-Engine/
 │
 ├── backend-csharp.Tests/               # 🧪 Progetto test xUnit
 │   ├── NexusEngine.Tests.csproj
-│   └── Domain/
-│       └── OrderBook/
-│           └── OrderBookTests.cs       # 12 test: match, add, remove, FIFO, rifiuto
+│   ├── Domain/
+│   │   └── OrderBook/
+│   │       └── OrderBookTests.cs       # 12 test: match, add, remove, FIFO, rifiuto
+│   └── Application/                    # 🆕 Test handler notifiche (Phase 4)
+│       └── Notifications/
+│           └── NotificationHandlerTests.cs  # 8 test: TradeExecuted, OrderBookChanged, BalanceChanged
 │
-└── frontend/                           # Vite 8 + React (placeholder / non customizzato)
+└── frontend/                           # Vite 8 + React (TypeScript strict)
     ├── Dockerfile
     ├── nginx.conf
     ├── package.json
@@ -122,9 +138,15 @@ Nexus-Engine/
     ├── node_modules/
     └── src/
         ├── main.tsx
-        ├── index.css
+        ├── index.css                      # CSS variables dark theme
         ├── App.tsx
         ├── App.css
+        ├── api/                           # 🆕 API layer (Phase 4)
+        │   └── nexusApi.ts                # createAccount, deposit, placeOrder, etc.
+        ├── components/                    # 🆕 Componenti dashboard (Phase 4)
+        │   └── NexusDashboard.tsx         # Order book, trades, balance, forms, guide sidebar
+        ├── hooks/                         # 🆕 SignalR hook (Phase 4)
+        │   └── useNexusHub.ts             # Connessione WebSocket, eventi trade/orderbook/balance
         └── assets/
             ├── hero.png
             ├── react.svg
@@ -144,6 +166,15 @@ Nexus-Engine/
 | POST | `/api/orders` | `OrdersController.PlaceOrder` | `PlaceOrderHandler` | Piazza ordine → esegue matching → 201 / 400 / 404 / 409 |
 | GET | `/api/orders?accountId={id}` | `OrdersController.GetOrders` | `GetOrdersHandler` | Elenca ordini → 200 |
 | DELETE | `/api/orders/{orderId}` | `OrdersController.CancelOrder` | `CancelOrderHandler` | Cancella ordine aperto → 204 / 404 |
+| WebSocket | `/hubs/nexus` | `NexusHub` | — | Connessione real-time SignalR |
+
+### SignalR eventi push
+
+| Evento | Payload | Trigger |
+|--------|---------|---------|
+| `TradeExecuted` | `{ tradeId, buyOrderId, sellOrderId, price, quantity, timestamp }` | Match tra buy e sell |
+| `OrderBookChanged` | `{ symbol, bids: [[price, qty]], asks: [[price, qty]] }` | Ogni modifica all'order book |
+| `BalanceChanged` | `{ accountId, balance, reservedBalance }` | Deposito o fill ordine |
 
 ---
 
@@ -156,6 +187,7 @@ Nexus-Engine/
 - **Matching Engine**: Price-time priority FIFO. `SortedDictionary` per bids (desc) e asks (asc). Match/add/remove operations.
 - **Optimistic Locking**: Unique index `(aggregate_id, aggregate_version)` su `domain_events`. Postgres errore `23505` → retry (max 3 con jitter 50-300ms).
 - **Idempotency**: Action Filter `IdempotencyFilter` con header `X-Idempotency-Key` su `POST /api/orders`.
+- **Real-time (Phase 4)**: SignalR hub `/hubs/nexus`. MediatR notification → handler → `IHubContext<THub>`. Eventi: `TradeExecuted`, `OrderBookChanged`, `BalanceChanged`.
 
 ---
 

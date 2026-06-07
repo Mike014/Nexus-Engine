@@ -35,8 +35,21 @@ using NexusEngine.Api.Infrastructure.Persistence;
 using NexusEngine.Api.Application.Orders.Validation;
 using NexusEngine.Application.Abstractions;
 using NexusEngine.Infrastructure.OrderBook;
+using NexusEngine.Api.Application.Behaviors;
+using Serilog;
+using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, config) =>
+{
+    config.ReadFrom.Configuration(context.Configuration)
+          .ReadFrom.Services(services)
+          .Enrich.FromLogContext()
+          .Enrich.WithMachineName()
+          .Enrich.WithThreadId();
+});
 
 // --- Services Registration Layer ---
 
@@ -47,7 +60,10 @@ builder.Services.AddSwaggerGen();
 
 // Fix #3 -- rimossa doppia registrazione MediatR sullo stesso assembly.
 builder.Services.AddMediatR(cfg =>
-    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+{
+    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
+    cfg.AddOpenBehavior(typeof(LoggingBehavior<,>));
+});
 
 // Fix #4 -- null-check esplicito sulla connection string.
 // Se la variabile d'ambiente non e' configurata, il sistema fallisce
@@ -96,6 +112,12 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Health Checks -- readiness probes DB, liveness is bare 200
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<NexusDbContext>(
+        name: "postgresql",
+        tags: new[] { "ready", "db" });
+
 var app = builder.Build();
 
 // --- Startup Migration Layer ---
@@ -132,5 +154,23 @@ app.UseCors("NexusPolicy");
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<NexusHub>("/hubs/nexus");
+
+// Liveness -- never queries the database, just returns 200 if the process is alive
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false,
+    ResponseWriter = (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        return context.Response.WriteAsync("{\"status\":\"Healthy\"}");
+    }
+});
+
+// Readiness -- queries PostgreSQL via EF Core to confirm the DB is reachable
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+});
 
 app.Run();
