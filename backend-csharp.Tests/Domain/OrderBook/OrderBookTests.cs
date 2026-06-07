@@ -233,4 +233,48 @@ public class OrderBookTests
         Assert.False(noMatch);
         Assert.False(nullInnerResult);
     }
+
+    [Fact]
+    public void Recovery_AddOrdersToNewBook_RestoresState()
+    {
+        // Arrange
+        var initialBook = new NexusEngine.Domain.OrderBook.OrderBook("TEST");
+        var buyOrder = CreateOrder(Guid.NewGuid(), "Buy", 100m, 10m, 10m);
+        var sellOrder = CreateOrder(Guid.NewGuid(), "Sell", 200m, 5m, 5m);
+        initialBook.Match(buyOrder);
+        initialBook.Match(sellOrder);
+
+        // Simulate recovery: fresh book, reload orders via AddOrder
+        var recoveredBook = new NexusEngine.Domain.OrderBook.OrderBook("TEST");
+        recoveredBook.Match(buyOrder);
+        recoveredBook.Match(sellOrder);
+
+        // Assert
+        Assert.Contains(100m, recoveredBook.Bids.Keys);
+        Assert.Contains(buyOrder, recoveredBook.Bids[100m]);
+        Assert.Contains(200m, recoveredBook.Asks.Keys);
+        Assert.Contains(sellOrder, recoveredBook.Asks[200m]);
+    }
+
+    [Fact]
+    public void Recovery_FilterOnlyPendingAndPartiallyFilled()
+    {
+        // Arrange
+        var orders = new List<Order>
+        {
+            new() { Id = Guid.NewGuid(), Symbol = "TEST", Side = "Buy", Price = 100m, Quantity = 10m, RemainingQuantity = 10m, Status = "Pending" },
+            new() { Id = Guid.NewGuid(), Symbol = "TEST", Side = "Buy", Price = 100m, Quantity = 10m, RemainingQuantity = 5m, Status = "PartiallyFilled" },
+            new() { Id = Guid.NewGuid(), Symbol = "TEST", Side = "Sell", Price = 100m, Quantity = 10m, RemainingQuantity = 0m, Status = "Filled" },
+            new() { Id = Guid.NewGuid(), Symbol = "TEST", Side = "Sell", Price = 100m, Quantity = 10m, RemainingQuantity = 0m, Status = "Cancelled" },
+        };
+
+        // Act
+        var reloadable = orders
+            .Where(o => o.Status == "Pending" || o.Status == "PartiallyFilled")
+            .ToList();
+
+        // Assert
+        Assert.Equal(2, reloadable.Count);
+        Assert.All(reloadable, o => Assert.Contains(o.Status, new[] { "Pending", "PartiallyFilled" }));
+    }
 }

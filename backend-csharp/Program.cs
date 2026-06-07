@@ -80,6 +80,7 @@ builder.Services.AddScoped<IOrderValidationStrategy, SufficientBalanceValidation
 
 // Order Book Matching Engine -- Singleton, in-memory state
 builder.Services.AddSingleton<IOrderBookService, OrderBookService>();
+builder.Services.AddHostedService<OrderBookRecoveryService>();
 
 var app = builder.Build();
 
