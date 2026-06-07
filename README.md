@@ -125,6 +125,31 @@ GET    /swagger                                      Swagger UI
 
 ---
 
+## Database Reset (Railway)
+
+When running tests on the live Railway environment, the in-memory
+Order Book accumulates resting orders across test runs. This can
+cause unexpected matches between scenarios.
+
+If you notice balance discrepancies or unexpected order matches,
+clean the database via Railway → Postgres → Database → Data tab,
+running these queries in order (foreign key constraints require
+this exact sequence):
+
+```sql
+DELETE FROM idempotency_keys;
+DELETE FROM transactions;
+DELETE FROM orders;
+DELETE FROM domain_events;
+DELETE FROM accounts;
+```
+
+After cleaning, redeploy the backend service on Railway to reset
+the in-memory Order Book. The OrderBookRecoveryService will
+restart with an empty state.
+
+---
+
 ## Architectural Decisions
 
 ### ADR-001: Event Sourcing as persistence strategy
