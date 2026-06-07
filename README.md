@@ -173,16 +173,25 @@ Handlers depend on `INexusUnitOfWork` interface, never on `NexusDbContext` direc
 - Strategy Pattern: order validation (AccountExists, AccountActive, SufficientBalance)
 - Order book recovery on restart (IHostedService reloads Pending and PartiallyFilled orders)
 
-### Phase 4 — Real-time
-- SignalR push
-- Live order book, balance updates, trade feed
-- React dashboard with live data
+### Phase 4 — Real-time ✅
+- SignalR hub (`NexusHub`) with WebSocket endpoint `/hubs/nexus`
+- MediatR notifications: `TradeExecutedNotification`, `OrderBookChangedNotification`, `BalanceChangedNotification`
+- Push updates: executed trades, order book snapshot, balance changes
+- React dashboard with live Order Book, Recent Trades, Balance Update panels
+- Interactive action forms: Create Account, Deposit, Place Order, Cancel Order, Get Orders
+- Guide sidebar with technical concepts, formulas, and usage instructions
+- Responsive layout: desktop sidebar, mobile accordion
+- CORS configured for WebSocket cross-origin connections
+- 20/20 unit tests passing (xUnit + Moq)
+- Selenium E2E test: full buy/sell match flow verified
 
-### Phase 5 — Observability and Polish
+### Phase 5 — Observability and Deploy
 - Structured logging (Serilog)
 - Health checks
+- MediatR Pipeline Behavior for global exception handling
 - Architecture diagrams and ADR documentation
-- Event replay demonstration
+- Deploy to Railway (PostgreSQL + backend + frontend)
+- Public URL for portfolio showcase
 - Metrics (Prometheus + Grafana, optional)
 
 ---
