@@ -19,6 +19,7 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 - [Phase 1](https://github.com/Mike014/Nexus-Engine/blob/main/Phase1.md)
 - [Phase 2](https://github.com/Mike014/Nexus-Engine/blob/main/Phase2.md)
 - [Phase 3](https://github.com/Mike014/Nexus-Engine/blob/main/Phase3.md)
+- [Phase 4](https://github.com/Mike014/Nexus-Engine/blob/main/Phase4.md)
 
 ---
 
