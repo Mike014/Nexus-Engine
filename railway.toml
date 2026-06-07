@@ -1,5 +1,6 @@
 [build]
 dockerfilePath = "backend-csharp/Dockerfile"
+buildCommand = ""
 
 [deploy]
 healthcheckPath = "/health/live"
