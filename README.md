@@ -1,5 +1,7 @@
 # Nexus Engine
 
+![CI](https://github.com/Mike014/Nexus-Engine/actions/workflows/ci.yml/badge.svg)
+
 <div align="center">
   <img src="assets/images/logo.jpg" alt="Nexus Engine"
             alt="Nexus Engine" 
@@ -74,8 +76,8 @@ Nexus Engine is not a commercial product. It is a technical portfolio project th
 ## Tech Stack
 
 ### Backend
-- ASP.NET Core 8 Web API
-- Entity Framework Core 8 + Npgsql
+- ASP.NET Core 9 Web API
+- Entity Framework Core 9 + Npgsql
 - MediatR 12 (CQRS)
 - SignalR (real-time WebSocket)
 - Swashbuckle (Swagger UI)
@@ -110,8 +112,17 @@ cd Nexus-Engine
 docker compose --profile csharp up --build
 ```
 
-### Available endpoints
+### Workflow
 
+```bash
+git checkout -b fix/name
+git add .
+git commit -m "fix: "
+git push origin fix/nameix
+### Available endpoints
+```
+
+### HTTP Requests
 ```
 POST   /api/accounts              Create a new account
 GET    /api/accounts/{id}         Get current account state (from projection)
@@ -147,6 +158,18 @@ DELETE FROM accounts;
 After cleaning, redeploy the backend service on Railway to reset
 the in-memory Order Book. The OrderBookRecoveryService will
 restart with an empty state.
+
+---
+
+## Live Demo
+
+| Service | URL |
+|---------|-----|
+| Frontend | https://nexus-engine-olive.vercel.app |
+| Backend API | https://nexus-engine-production-60c8.up.railway.app |
+| Swagger UI | https://nexus-engine-production-60c8.up.railway.app/swagger |
+| Health Live | https://nexus-engine-production-60c8.up.railway.app/health/live |
+| Health Ready | https://nexus-engine-production-60c8.up.railway.app/health/ready |
 
 ---
 
@@ -212,14 +235,15 @@ Handlers depend on `INexusUnitOfWork` interface, never on `NexusDbContext` direc
 - 20/20 unit tests passing (xUnit + Moq)
 - Selenium E2E test: full buy/sell match flow verified
 
-### Phase 5 — Observability and Deploy
-- Structured logging (Serilog)
-- Health checks
-- MediatR Pipeline Behavior for global exception handling
-- Architecture diagrams and ADR documentation
-- Deploy to Railway (PostgreSQL + backend + frontend)
-- Public URL for portfolio showcase
-- Metrics (Prometheus + Grafana, optional)
+### Phase 5 — Observability and Deploy ✅
+- Structured logging (Serilog) with Console + File sinks
+- Health checks (/health/live and /health/ready)
+- MediatR Pipeline Behavior (LoggingBehavior)
+- Deploy to Railway (PostgreSQL + ASP.NET Core 9 backend)
+- Deploy to Vercel (React/Vite frontend)
+- Public URLs for portfolio showcase
+- GitHub Actions CI (build + 20 tests on every PR)
+- Branch protection on main (PR required, CI must pass)
 
 ---
 
