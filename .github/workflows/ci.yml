@@ -19,5 +19,9 @@ jobs:
         run: dotnet restore backend-csharp/NexusEngine.Api.csproj
       - name: Build
         run: dotnet build backend-csharp/NexusEngine.Api.csproj --no-restore
+      - name: Restore Tests
+        run: dotnet restore backend-csharp.Tests/NexusEngine.Tests.csproj
+      - name: Build Tests
+        run: dotnet build backend-csharp.Tests/NexusEngine.Tests.csproj --no-restore
       - name: Test
-        run: dotnet test backend-csharp.Tests/ --no-build --verbosity normal
+        run: dotnet test backend-csharp.Tests/NexusEngine.Tests.csproj --no-build --verbosity normal
