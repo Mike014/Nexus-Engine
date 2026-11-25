@@ -34,7 +34,7 @@ public class OrderBookChangedNotificationHandler
         OrderBookChangedNotification notification,
         CancellationToken cancellationToken)
     {
-        var snapshot = _orderBookService.GetSnapshot();
+        var snapshot = _orderBookService.GetSnapshot(notification.Symbol);
 
         await _hubContext.Clients.All.SendAsync(
             "OrderBookSnapshot", snapshot, cancellationToken);

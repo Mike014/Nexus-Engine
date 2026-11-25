@@ -115,7 +115,7 @@ public class OrderBookChangedNotificationHandlerTests
     {
         var mockOrderBookService = new Mock<IOrderBookService>();
         var expectedSnapshot = new { Bids = new object[] { }, Asks = new object[] { }, Symbol = "TEST" };
-        mockOrderBookService.Setup(s => s.GetSnapshot()).Returns(expectedSnapshot);
+        mockOrderBookService.Setup(s => s.GetSnapshot("TEST")).Returns(expectedSnapshot);
 
         var mockClients = new Mock<IHubClients>();
         var mockClientProxy = new Mock<IClientProxy>();
@@ -130,7 +130,7 @@ public class OrderBookChangedNotificationHandlerTests
 
         await handler.Handle(notification, CancellationToken.None);
 
-        mockOrderBookService.Verify(s => s.GetSnapshot(), Times.Once);
+        mockOrderBookService.Verify(s => s.GetSnapshot("TEST"), Times.Once);
         mockClientProxy.Verify(
             p => p.SendCoreAsync(
                 "OrderBookSnapshot",
@@ -146,7 +146,7 @@ public class OrderBookChangedNotificationHandlerTests
     public async Task Handle_CancellationToken_ForwardsToSignalR()
     {
         var mockOrderBookService = new Mock<IOrderBookService>();
-        mockOrderBookService.Setup(s => s.GetSnapshot()).Returns(new object());
+        mockOrderBookService.Setup(s => s.GetSnapshot("TEST")).Returns(new object());
 
         var mockClients = new Mock<IHubClients>();
         var mockClientProxy = new Mock<IClientProxy>();

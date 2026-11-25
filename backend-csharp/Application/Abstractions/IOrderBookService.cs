@@ -1,31 +1,7 @@
-// ============================================================================
-// Copyright (c) NexusEngine Enterprise. All rights reserved.
-// Product: NexusEngine.Api
-// Layer: Application.Abstractions
-//
-// FILE DESCRIPTION:
-// Defines the service contract for the limit-order matching engine.
-// Provides an abstraction over the OrderBook domain logic for the
-// Application layer, following the same pattern as INexusUnitOfWork.
-//
-// CLASS DOCUMENTATION:
-// - IOrderBookService: Interface exposing order matching and order placement
-//   operations. The concrete implementation lives in Infrastructure.OrderBook.
-//   This keeps the Application layer decoupled from the matching engine's
-//   internal state management.
-//
-// MEMBER DOCUMENTATION:
-// - Match(): Processes an incoming order through price-time priority FIFO
-//   matching. Returns all trades produced during matching. Unmatched quantity
-//   is automatically added to the resting book.
-// - AddOrder(): Places an order directly into the book without explicit
-//   match result handling. The matching engine processes it internally.
-// - RemoveOrder(): Removes a resting order from the book. Throws
-//   InvalidOperationException if the price level or order is not found.
-// - GetSnapshot(): Returns the current state of the order book as an
-//   anonymous object with Bids (descending by price), Asks (ascending
-//   by price), and Symbol.
-// ============================================================================
+// Matching engine abstraction. Books are kept per symbol in memory.
+// Mutations (Match/Load/Remove/Checkpoint/Restore) must happen while holding the
+// engine lock obtained from AcquireAsync, so that the in-memory book and the
+// database are changed as a single serialized unit of work.
 
 namespace NexusEngine.Application.Abstractions;
 
@@ -34,11 +10,22 @@ using NexusEngine.Domain.OrderBook;
 
 public interface IOrderBookService
 {
+    Task<IDisposable> AcquireAsync(CancellationToken cancellationToken = default);
+
     MatchResult Match(Order order);
 
-    void AddOrder(Order order);
+    void Load(Order order);
 
-    void RemoveOrder(Order order);
+    bool RemoveOrder(Order order);
 
-    object GetSnapshot();
+    IOrderBookCheckpoint Checkpoint(string symbol);
+
+    void Restore(IOrderBookCheckpoint checkpoint);
+
+    object GetSnapshot(string symbol);
+}
+
+public interface IOrderBookCheckpoint
+{
+    string Symbol { get; }
 }

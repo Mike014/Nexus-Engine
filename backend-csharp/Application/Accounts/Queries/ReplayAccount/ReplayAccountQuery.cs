@@ -39,9 +39,11 @@ public record ReplayAccountDto(
     Guid Id,
     string OwnerName,
     decimal Balance,
+    decimal ReservedBalance,
     string Currency,
     string Status,
     int LastEventVersion,
-    int EventsReplayed
+    int EventsReplayed,
+    int LegacyEventsSkipped
 );
 

@@ -1,7 +1,7 @@
 # Nexus Engine — Agent Guide
 
 ## Active branch
-`phase-2` is HEAD. `main` is stable. Work on `phase-2`.
+`main` is the integration branch (phases 1-5 merged). Work on feature branches off `main`.
 
 ## Architecture in 10 lines
 
@@ -9,6 +9,9 @@
 - **CQRS**: MediatR commands/queries in `Application/`, thin controllers in `Controllers/`.
 - **Clean Architecture**: `Domain/` (pure C#) → `Application/` (depends on `INexusUnitOfWork` only) → `Infrastructure/` (EF Core, migrations).
 - **Optimistic Locking**: Unique index `(aggregate_id, aggregate_version)` on `domain_events`. Postgres error `23505` = concurrent write detected.
+- **Matching engine**: in-memory, one `OrderBook` per symbol (`OrderBookService` singleton). Writers hold `AcquireAsync()` for match + persist; the book is checkpointed and restored if `SaveChanges` fails. Recovery reloads open orders with `Load` (no matching). Single instance only.
+- **Ledger**: every balance-affecting event is written through `AccountLedger.Append` and carries `BalanceDelta`/`ReservedDelta`, so `/replay` rebuilds the projection exactly. Makers get their own events.
+- **Real-time**: MediatR notifications -> SignalR hub `/hubs/nexus`.
 ## Docker Compose
 
 ```bash
@@ -19,6 +22,10 @@ make db-shell     # psql -U nexus -d nexusdb
 ```
 
 Port `5000:8080`. Frontend on `3000`.
+
+## Production (Railway, no Docker)
+
+`railway.toml` builds with Railpack (`dotnet publish`). Dashboard: Root Directory `backend-csharp`, Postgres plugin (`DATABASE_URL` is auto-converted), App Sleeping off, 1 replica.
 
 ### Generate a migration
 ```bash
@@ -38,7 +45,7 @@ dotnet build
 dotnet run   # http://localhost:5140, swagger at /swagger
 ```
 
-No test project exists for C# backend.
+Tests: `dotnet test backend-csharp.Tests/NexusEngine.Tests.csproj` (xUnit, Moq, EF InMemory). CI runs them on push/PR to `main`.
 
 ## Database
 
@@ -56,7 +63,10 @@ No test project exists for C# backend.
 | GET | `/api/accounts/{id}` | Get account projection |
 | POST | `/api/accounts/{id}/deposit` | Deposit funds |
 | GET | `/api/accounts/{id}/replay` | Reconstruct state from events |
-| POST | `/api/orders` | Place order (reserves funds) |
+| POST | `/api/orders` | Place order (reserves funds, matches) |
+| GET | `/api/orders?accountId=` | List orders |
+| DELETE | `/api/orders/{id}?accountId=` | Cancel order |
+| GET | `/health/live`, `/health/ready` | Health checks |
 
 ## Key domain entities
 
@@ -66,16 +76,16 @@ No test project exists for C# backend.
 | `Account` | `accounts` | Read-side projection (balance, reserved_balance, status) |
 | `Order` | `orders` | Read-side projection (side, price, qty, status) |
 | `Transaction` | `transactions` | Ledger row linking account/order/event |
-| `IdempotencyKey` | `idempotency_keys` | Duplicate request protection (table exists, not fully wired) |
+| `IdempotencyKey` | `idempotency_keys` | `X-Idempotency-Key` on `POST /api/orders`; claimed atomically, scoped to method+path |
 
 ## Frontend
 
-Vite 8 scaffold with placeholder Vite/React demo content. **Not customized for Nexus Engine**. Build:
+Vite + React dashboard (`src/components/NexusDashboard.tsx`, SignalR via `src/hooks/useNexusHub.ts`). Deployed on Vercel.
 ```bash
 cd frontend
-npm run dev      # local dev
-npm run build    # tsc -b && vite build
-npm run lint     # eslint .
+npm run dev
+npm run build
+npm run lint
 ```
 
 ## Conventions
@@ -87,11 +97,8 @@ npm run lint     # eslint .
 - Controllers do **zero business logic** — parse request → build command/query → dispatch via `IMediator`.
 - `INexusUnitOfWork` is the only persistence abstraction the Application layer sees.
 
-## What doesn't exist yet
+## Known gaps
 
-- Frontend: not customized — still showing Vite/React demo.
-- Order book / matching engine (Phase 3).
-- Real-time: SignalR (Phase 4).
-- Observability: structured logging, health checks, metrics (Phase 5).
-- CI/CD: no GitHub Actions workflows.
-- Tests: C# backend has no test project.
+- No asset positions: sells don't require holdings and buyers don't receive the asset.
+- Legacy `OrderMatched` events (written before deltas) are skipped by replay (`LegacyEventsSkipped`).
+- Matching engine is in-process: run exactly one backend instance.

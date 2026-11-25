@@ -1,90 +1,97 @@
-// ============================================================================
-// Copyright (c) NexusEngine Enterprise. All rights reserved.
-// Product: NexusEngine.Api
-// Layer: Infrastructure.OrderBook
-//
-// FILE DESCRIPTION:
-// Concrete implementation of IOrderBookService backed by the pure domain
-// matching engine. Follows the same adapter pattern as NexusUnitOfWork --
-// bridges an Application abstraction with a domain implementation.
-//
-// CLASS DOCUMENTATION:
-// - OrderBookService: Singleton service wrapping a single Domain.OrderBook
-//   instance configured for the "BTC/USD" trading pair. All methods delegate
-//   directly to the inner OrderBook without additional logic. Thread-safe
-//   via instance-level locking.
-//
-// MEMBER DOCUMENTATION:
-// - _orderBook: The underlying domain matching engine instance.
-// - _lock: Synchronization guard for singleton thread safety.
-// - Match(): Delegates to Domain.OrderBook.Match(), returning all trades.
-// - AddOrder(): Delegates to Domain.OrderBook.Match() to place an order.
-// - RemoveOrder(): Thread-safe removal of a resting order from the book.
-// - GetSnapshot(): Thread-safe snapshot of the current order book state.
-// ============================================================================
+// In-memory, per-symbol matching engine. A SemaphoreSlim serializes writers for the
+// whole duration of a command (match + persist); an inner lock protects reads
+// (snapshots) that may run concurrently from notification handlers.
 
 namespace NexusEngine.Infrastructure.OrderBook;
 
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
 using NexusEngine.Domain.OrderBook;
+using Book = NexusEngine.Domain.OrderBook.OrderBook;
 
 public class OrderBookService : IOrderBookService
 {
-    private readonly NexusEngine.Domain.OrderBook.OrderBook _orderBook;
+    private readonly Dictionary<string, Book> _books = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly object _lock = new();
 
-    public OrderBookService()
+    public async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken = default)
     {
-        _orderBook = new NexusEngine.Domain.OrderBook.OrderBook("BTC/USD");
+        await _writer.WaitAsync(cancellationToken);
+        return new Releaser(_writer);
     }
 
     public MatchResult Match(Order order)
     {
-        return _orderBook.Match(order);
+        lock (_lock)
+            return GetOrCreate(order.Symbol).Match(order);
     }
 
-    public void AddOrder(Order order)
+    public void Load(Order order)
     {
-        _orderBook.Match(order);
+        lock (_lock)
+            GetOrCreate(order.Symbol).Add(order);
     }
 
-    public void RemoveOrder(Order order)
+    public bool RemoveOrder(Order order)
+    {
+        lock (_lock)
+            return _books.TryGetValue(order.Symbol, out var book) && book.TryRemoveOrder(order);
+    }
+
+    public IOrderBookCheckpoint Checkpoint(string symbol)
+    {
+        lock (_lock)
+            return new BookCheckpoint(symbol, GetOrCreate(symbol).Clone());
+    }
+
+    public void Restore(IOrderBookCheckpoint checkpoint)
+    {
+        var cp = (BookCheckpoint)checkpoint;
+        lock (_lock)
+            _books[cp.Symbol] = cp.Book;
+    }
+
+    public object GetSnapshot(string symbol)
     {
         lock (_lock)
         {
-            _orderBook.RemoveOrder(order);
+            _books.TryGetValue(symbol, out var book);
+
+            var bids = book?.Bids
+                .Select(b => new { Price = b.Key, Quantity = b.Value.Sum(o => o.RemainingQuantity) })
+                .Where(l => l.Quantity > 0)
+                .ToList() ?? [];
+
+            var asks = book?.Asks
+                .Select(a => new { Price = a.Key, Quantity = a.Value.Sum(o => o.RemainingQuantity) })
+                .Where(l => l.Quantity > 0)
+                .ToList() ?? [];
+
+            return new { Symbol = symbol, Bids = bids, Asks = asks };
         }
     }
 
-    public object GetSnapshot()
+    private Book GetOrCreate(string symbol)
     {
-        lock (_lock)
+        if (!_books.TryGetValue(symbol, out var book))
         {
-            var bids = _orderBook.Bids
-                .Where(b =>b.Value.Sum(o => o.RemainingQuantity) > 0)
-                .Select(b => new
-                {
-                    Price = b.Key,
-                    Quantity = b.Value.Sum(o => o.RemainingQuantity)
-                })
-                .ToList();
+            book = new Book(symbol);
+            _books[symbol] = book;
+        }
+        return book;
+    }
 
-            var asks = _orderBook.Asks
-                .Where(b =>b.Value.Sum(o => o.RemainingQuantity) > 0)
-                .Select(a => new
-                {
-                    Price = a.Key,
-                    Quantity = a.Value.Sum(o => o.RemainingQuantity)
-                })
-                .ToList();
+    private sealed record BookCheckpoint(string Symbol, Book Book) : IOrderBookCheckpoint;
 
-            return new
-            {
-                Symbol = _orderBook.Symbol,
-                Bids = bids,
-                Asks = asks
-            };
+    private sealed class Releaser(SemaphoreSlim semaphore) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                semaphore.Release();
         }
     }
 }

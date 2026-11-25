@@ -37,6 +37,8 @@ public class NexusUnitOfWork : INexusUnitOfWork
     public DbSet<DomainEvent> DomainEvents => _db.DomainEvents;
     public DbSet<IdempotencyKey> IdempotencyKeys => _db.IdempotencyKeys;
 
+    public void DiscardChanges() => _db.ChangeTracker.Clear();
+
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         => _db.SaveChangesAsync(cancellationToken);
 }

@@ -244,10 +244,10 @@ public class OrderBookTests
         initialBook.Match(buyOrder);
         initialBook.Match(sellOrder);
 
-        // Simulate recovery: fresh book, reload orders via AddOrder
+        // Simulate recovery: fresh book, reload orders via Add (no matching)
         var recoveredBook = new NexusEngine.Domain.OrderBook.OrderBook("TEST");
-        recoveredBook.Match(buyOrder);
-        recoveredBook.Match(sellOrder);
+        recoveredBook.Add(buyOrder);
+        recoveredBook.Add(sellOrder);
 
         // Assert
         Assert.Contains(100m, recoveredBook.Bids.Keys);

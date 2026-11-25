@@ -72,11 +72,10 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
                         break;
 
                     case "FundsDeposited":
-                        var deposited = JsonSerializer.Deserialize<FundsDepositedPayload>(
-                            evt.Payload,
-                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-                        )!;
-                        state.Balance = deposited.BalanceAfter;
+                    case "OrderPlaced":
+                    case "OrderMatched":
+                    case "OrderCancelled":
+                        ApplyBalanceEvent(state, evt.EventType, evt.Payload);
                         break;
 
                     default:
@@ -87,7 +86,7 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
                             "Update the replay handler to support this event.");
                 }
             }
-            catch (System.Text.Json.JsonException ex)
+            catch (Exception ex) when (ex is JsonException or KeyNotFoundException or FormatException)
             {
                 throw new InvalidOperationException(
                     $"Event {evt.Id} (type={evt.EventType}, " +
@@ -102,11 +101,46 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
             state.Id,
             state.OwnerName,
             state.Balance,
+            state.ReservedBalance,
             state.Currency,
             state.Status,
             state.LastEventVersion,
-            EventsReplayed: events.Count
+            EventsReplayed: events.Count,
+            LegacyEventsSkipped: state.LegacyEventsSkipped
         );
+    }
+
+    // New events carry explicit deltas. Events written before deltas existed are
+    // interpreted from their original fields; legacy OrderMatched events cannot be
+    // interpreted safely (no side information) and are counted as skipped.
+    private static void ApplyBalanceEvent(AccountState state, string eventType, string payload)
+    {
+        using var doc = JsonDocument.Parse(payload);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("BalanceDelta", out var balanceDelta)
+            && root.TryGetProperty("ReservedDelta", out var reservedDelta))
+        {
+            state.Balance += balanceDelta.GetDecimal();
+            state.ReservedBalance += reservedDelta.GetDecimal();
+            return;
+        }
+
+        switch (eventType)
+        {
+            case "FundsDeposited":
+                state.Balance = root.GetProperty("BalanceAfter").GetDecimal();
+                break;
+            case "OrderPlaced":
+                state.ReservedBalance += root.GetProperty("ReservationAmount").GetDecimal();
+                break;
+            case "OrderCancelled":
+                state.ReservedBalance -= root.GetProperty("RefundAmount").GetDecimal();
+                break;
+            default:
+                state.LegacyEventsSkipped++;
+                break;
+        }
     }
 
     private class AccountState
@@ -114,6 +148,8 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
         public Guid Id { get; set; }
         public string OwnerName { get; set; } = string.Empty;
         public decimal Balance { get; set; }
+        public decimal ReservedBalance { get; set; }
+        public int LegacyEventsSkipped { get; set; }
         public string Currency { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
         public int LastEventVersion { get; set; }
@@ -123,11 +159,5 @@ public class ReplayAccountHandler : IRequestHandler<ReplayAccountQuery, ReplayAc
         string OwnerName,
         string Currency,
         decimal InitialBalance
-    );
-
-    private record FundsDepositedPayload(
-        decimal Amount,
-        decimal BalanceBefore,
-        decimal BalanceAfter
     );
 }

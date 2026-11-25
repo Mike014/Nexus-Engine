@@ -26,7 +26,6 @@
 
 namespace NexusEngine.Api.Application.Accounts.Commands.DepositFunds;
 
-using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Application.Abstractions;
@@ -56,6 +55,7 @@ public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
             }
             catch (DbUpdateException ex) when (OptimisticConcurrencyHelper.IsUniqueConstraintViolation(ex))
             {
+                _uow.DiscardChanges();
                 if (attempt < maxAttempts)
                 {
                     var delay = Random.Shared.Next(50, 300);
@@ -91,27 +91,15 @@ public class DepositFundsHandler : IRequestHandler<DepositFundsCommand, Unit>
             throw new InvalidOperationException(
                 $"Account {command.AccountId} is not Active.");
 
-        var nextVersion = account.LastEventVersion + 1;
-
-        var domainEvent = new DomainEvent
-        {
-            AggregateId      = command.AccountId,
-            AggregateType    = "Account",
-            EventType        = "FundsDeposited",
-            AggregateVersion = nextVersion,
-            Payload          = JsonSerializer.Serialize(new
+        AccountLedger.Append(_uow, account, "FundsDeposited", orderId: null,
+            balanceDelta: command.Amount, reservedDelta: 0m,
+            new
             {
                 command.Amount,
                 BalanceBefore = account.Balance,
                 BalanceAfter  = account.Balance + command.Amount
-            })
-        };
+            });
 
-        account.Balance          += command.Amount;
-        account.LastEventVersion  = nextVersion;
-        account.UpdatedAt         = DateTime.UtcNow;
-
-        _uow.DomainEvents.Add(domainEvent);
         await _uow.SaveChangesAsync(cancellationToken);
 
         return Unit.Value;
