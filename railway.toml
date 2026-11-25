@@ -1,9 +1,18 @@
+# Railway: native .NET build via Railpack (no Dockerfile).
+# Service settings required in the Railway dashboard:
+#   - Root Directory: backend-csharp
+#   - Config file path: /railway.toml
+#   - Variable ConnectionStrings__DefaultConnection -> Railway Postgres
+#   - Serverless / App Sleeping: OFF (keeps the engine and its in-memory book always up)
+
 [build]
-dockerfilePath = "backend-csharp/Dockerfile"
-buildCommand = ""
+builder = "RAILPACK"
+buildCommand = "dotnet publish NexusEngine.Api.csproj -c Release -o out"
+watchPatterns = ["backend-csharp/**"]
 
 [deploy]
-healthcheckPath = "/health/live"
-healthcheckTimeout = 30
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
+startCommand = "dotnet out/NexusEngine.Api.dll"
+healthcheckPath = "/health/ready"
+healthcheckTimeout = 60
+restartPolicyType = "always"
+numReplicas = 1

@@ -76,6 +76,7 @@ builder.Services.AddMediatR(cfg =>
 // immediatamente con un messaggio chiaro invece di crashare piu' tardi
 // con un errore criptico di connessione.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? FromDatabaseUrl(Environment.GetEnvironmentVariable("DATABASE_URL"))
     ?? throw new InvalidOperationException(
         "Connection string 'DefaultConnection' not configured. " +
         "Set the environment variable 'ConnectionStrings__DefaultConnection'.");
@@ -164,3 +165,21 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 
 app.Run();
+
+// Railway/Heroku style postgres://user:pass@host:port/db -> Npgsql key/value string.
+static string? FromDatabaseUrl(string? url)
+{
+    if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        return null;
+
+    var userInfo = uri.UserInfo.Split(':', 2);
+    return new Npgsql.NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = Uri.UnescapeDataString(userInfo[0]),
+        Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : null,
+        SslMode = Npgsql.SslMode.Prefer
+    }.ConnectionString;
+}
