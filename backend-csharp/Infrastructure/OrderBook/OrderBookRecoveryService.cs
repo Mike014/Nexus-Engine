@@ -35,13 +35,16 @@ public class OrderBookRecoveryService : IHostedService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOrderBookService _orderBookService;
+    private readonly ILogger<OrderBookRecoveryService> _logger;
 
     public OrderBookRecoveryService(
         IServiceScopeFactory scopeFactory,
-        IOrderBookService orderBookService)
+        IOrderBookService orderBookService,
+        ILogger<OrderBookRecoveryService> logger)
     {
         _scopeFactory = scopeFactory;
         _orderBookService = orderBookService;
+        _logger = logger;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -50,14 +53,17 @@ public class OrderBookRecoveryService : IHostedService
         var uow = scope.ServiceProvider.GetRequiredService<INexusUnitOfWork>();
 
         var orders = await uow.Orders
+            .AsNoTracking()
             .Where(o => o.Status == "Pending" || o.Status == "PartiallyFilled")
+            .OrderBy(o => o.CreatedAt)
             .ToListAsync(cancellationToken);
 
+        using var _ = await _orderBookService.AcquireAsync(cancellationToken);
         foreach (var order in orders)
-            _orderBookService.AddOrder(order);
+            _orderBookService.Load(order);
 
-        Console.WriteLine(
-            $"[OrderBookRecovery] Reloaded {orders.Count} orders into order book.");
+        _logger.LogInformation(
+            "Order book recovery: reloaded {Count} open orders", orders.Count);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

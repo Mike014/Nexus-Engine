@@ -29,5 +29,7 @@ public interface INexusUnitOfWork
     DbSet<DomainEvent> DomainEvents { get; }
     DbSet<IdempotencyKey> IdempotencyKeys { get; }
 
+    void DiscardChanges();
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

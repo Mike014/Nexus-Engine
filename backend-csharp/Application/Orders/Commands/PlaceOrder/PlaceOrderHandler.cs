@@ -1,40 +1,16 @@
-// ============================================================================
-// Copyright (c) NexusEngine Enterprise. All rights reserved.
-// Product: NexusEngine.Api
-// Layer: Application.Orders.Commands.PlaceOrder
+// Places a limit order: validates, matches against the in-memory book, settles
+// both sides of every trade and persists events + projections atomically.
 //
-// FILE DESCRIPTION:
-// Implements the MediatR handler for PlaceOrderCommand.
-// Integrates with IOrderBookService to match incoming orders against
-// resting liquidity using price-time priority FIFO matching.
-//
-// CLASS DOCUMENTATION:
-// - PlaceOrderHandler: Executes the place order workflow with matching.
-//   Delegates validation to IOrderValidationStrategy implementations.
-//   Applies optimistic concurrency control via the unique constraint on
-//   (aggregate_id, aggregate_version) in the domain_events table. Retries
-//   up to 3 times with random jitter on unique constraint violations.
-//   Routes the order through IOrderBookService.Match() for price-time
-//   priority matching. Processes resulting trades by updating maker
-//   orders and accounts atomically. Places unmatched quantity back
-//   into the order book via AddOrder(). Writes OrderMatched and
-//   OrderPlaced domain events with corresponding transaction records.
-//
-// MEMBER DOCUMENTATION:
-// - _uow: Injected INexusUnitOfWork -- single unit of work for atomic persistence.
-// - _validations: Injected collection of validation strategies -- Open/Closed Principle.
-// - _orderBookService: Injected IOrderBookService singleton -- in-memory matching engine.
-// - _mediator: Injected IMediator -- publishes notifications after successful persistence.
-// - Handle: Validates, matches via OrderBook, processes trades, persists atomically.
-// - ApplyTradeToAccount: Adjusts account balance and reserved balance based on trade side.
-//   Throws KeyNotFoundException if account or maker order does not exist.
-//   Throws InvalidOperationException if any validation rule is violated
-//   or retries are exhausted due to concurrent activity.
-// ============================================================================
+// Consistency rules:
+// - The whole command runs under the matching-engine lock (serialized writers).
+// - The book is checkpointed before matching and restored if persistence fails,
+//   so memory never diverges from the database.
+// - Buyers reserve quantity * limit price; on each fill they pay quantity * trade
+//   price and release quantity * their own limit price (price improvement is freed).
+// - Every affected account (taker and makers) receives its own event and version.
 
 namespace NexusEngine.Api.Application.Orders.Commands.PlaceOrder;
 
-using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using NexusEngine.Api.Application.Abstractions;
@@ -43,9 +19,12 @@ using NexusEngine.Api.Application.Orders.Notifications;
 using NexusEngine.Api.Application.Orders.Validation;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
+using NexusEngine.Domain.OrderBook;
 
 public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
 {
+    private const int MaxAttempts = 3;
+
     private readonly INexusUnitOfWork _uow;
     private readonly IEnumerable<IOrderValidationStrategy> _validations;
     private readonly IOrderBookService _orderBookService;
@@ -63,53 +42,60 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         _mediator = mediator;
     }
 
-    private static void ApplyTradeToAccount(Account account, string side, decimal amount)
+    public async Task<Guid> Handle(PlaceOrderCommand command, CancellationToken cancellationToken)
     {
-        if (side == "Buy")
+        Outcome outcome;
+
+        using (await _orderBookService.AcquireAsync(cancellationToken))
         {
-            account.ReservedBalance -= amount;
+            outcome = await ExecuteWithRetry(command, cancellationToken);
         }
-        else
+
+        if (outcome.Trades.Count > 0)
+            await _mediator.Publish(new TradeExecutedNotification(outcome.Trades), cancellationToken);
+
+        await _mediator.Publish(new OrderBookChangedNotification(command.Symbol), cancellationToken);
+
+        foreach (var account in outcome.TouchedAccounts)
         {
-            account.Balance += amount;
+            await _mediator.Publish(
+                new BalanceChangedNotification(account.Id, account.Balance, account.ReservedBalance),
+                cancellationToken);
         }
-        account.UpdatedAt = DateTime.UtcNow;
+
+        return outcome.OrderId;
     }
 
-    public async Task<Guid> Handle(
-        PlaceOrderCommand command,
-        CancellationToken cancellationToken)
+    private async Task<Outcome> ExecuteWithRetry(PlaceOrderCommand command, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 3;
-
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        for (var attempt = 1; ; attempt++)
         {
+            var checkpoint = _orderBookService.Checkpoint(command.Symbol);
             try
             {
                 return await ExecuteOnce(command, cancellationToken);
             }
-            catch (DbUpdateException ex) when (OptimisticConcurrencyHelper.IsUniqueConstraintViolation(ex))
+            catch (Exception ex)
             {
-                if (attempt < maxAttempts)
-                {
-                    var delay = Random.Shared.Next(50, 300);
-                    await Task.Delay(delay, cancellationToken);
-                }
-                else
-                {
+                _orderBookService.Restore(checkpoint);
+                _uow.DiscardChanges();
+
+                var retryable = ex is DbUpdateException dbEx
+                    && OptimisticConcurrencyHelper.IsUniqueConstraintViolation(dbEx);
+
+                if (!retryable)
+                    throw;
+
+                if (attempt >= MaxAttempts)
                     throw new InvalidOperationException(
                         "Order could not be placed due to concurrent activity. Please try again.");
-                }
+
+                await Task.Delay(Random.Shared.Next(50, 300), cancellationToken);
             }
         }
-
-        throw new InvalidOperationException(
-            "Order could not be placed due to concurrent activity. Please try again.");
     }
 
-    private async Task<Guid> ExecuteOnce(
-        PlaceOrderCommand command,
-        CancellationToken cancellationToken)
+    private async Task<Outcome> ExecuteOnce(PlaceOrderCommand command, CancellationToken cancellationToken)
     {
         var account = await _uow.Accounts
             .FirstOrDefaultAsync(a => a.Id == command.AccountId, cancellationToken);
@@ -117,15 +103,14 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
         foreach (var validation in _validations)
             validation.Validate(account, command);
 
-        var reservationAmount = command.Side == "Buy"
-            ? command.Quantity * command.Price
-            : 0m;
-
-        var orderId = Guid.NewGuid();
+        var taker = account!;
+        var isBuy = command.Side == "Buy";
+        var reservation = isBuy ? command.Quantity * command.Price : 0m;
+        var now = DateTime.UtcNow;
 
         var order = new Order
         {
-            Id = orderId,
+            Id = Guid.NewGuid(),
             AccountId = command.AccountId,
             Symbol = command.Symbol,
             Side = command.Side,
@@ -134,23 +119,31 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
             FilledQuantity = 0,
             Price = command.Price,
             Status = "Pending",
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
+        AccountLedger.Append(_uow, taker, "OrderPlaced", order.Id,
+            balanceDelta: 0m, reservedDelta: reservation,
+            new
+            {
+                OrderId = order.Id,
+                command.Symbol,
+                command.Side,
+                command.Quantity,
+                command.Price,
+                ReservationAmount = reservation
+            });
+
         var matchResult = _orderBookService.Match(order);
-
-        account!.ReservedBalance += reservationAmount;
-
-        var domainEvents = new List<DomainEvent>();
-        var transactions = new List<Transaction>();
-        var version = account.LastEventVersion;
+        var touched = new Dictionary<Guid, Account> { [taker.Id] = taker };
 
         foreach (var trade in matchResult.Trades)
         {
-            var makerOrder = await _uow.Orders.FindAsync(trade.MakerOrderId, cancellationToken)
+            var makerOrder = await _uow.Orders.FindAsync([trade.MakerOrderId], cancellationToken)
                 ?? throw new KeyNotFoundException($"Maker order {trade.MakerOrderId} not found.");
 
-            var makerAccount = await _uow.Accounts.FindAsync(makerOrder.AccountId, cancellationToken)
+            var makerAccount = await _uow.Accounts.FindAsync([makerOrder.AccountId], cancellationToken)
                 ?? throw new KeyNotFoundException($"Maker account {makerOrder.AccountId} not found.");
 
             makerOrder.RemainingQuantity -= trade.Quantity;
@@ -158,107 +151,43 @@ public class PlaceOrderHandler : IRequestHandler<PlaceOrderCommand, Guid>
             makerOrder.Status = makerOrder.RemainingQuantity == 0 ? "Filled" : "PartiallyFilled";
             makerOrder.UpdatedAt = DateTime.UtcNow;
 
-            ApplyTradeToAccount(makerAccount, makerOrder.Side, trade.Price * trade.Quantity);
-            ApplyTradeToAccount(account, order.Side, trade.Price * trade.Quantity);
+            Settle(makerAccount, makerOrder, order.Id, trade, "Maker");
+            Settle(taker, order, makerOrder.Id, trade, "Taker");
 
-            version++;
-            var matchedEvent = new DomainEvent
-            {
-                AggregateId = command.AccountId,
-                AggregateType = "Account",
-                EventType = "OrderMatched",
-                AggregateVersion = version,
-                Payload = JsonSerializer.Serialize(new
-                {
-                    OrderId = orderId,
-                    MakerOrderId = trade.MakerOrderId,
-                    trade.Price,
-                    trade.Quantity
-                })
-            };
-            domainEvents.Add(matchedEvent);
-
-            transactions.Add(new Transaction
-            {
-                Id = Guid.NewGuid(),
-                AccountId = command.AccountId,
-                OrderId = orderId,
-                Type = "OrderMatched",
-                Amount = trade.Price * trade.Quantity,
-                EventId = matchedEvent.Id,
-                OccurredAt = DateTime.UtcNow
-            });
+            touched[makerAccount.Id] = makerAccount;
         }
 
         var totalTraded = matchResult.Trades.Sum(t => t.Quantity);
         order.FilledQuantity = totalTraded;
         order.RemainingQuantity = command.Quantity - totalTraded;
-
-        if (order.RemainingQuantity == 0)
-            order.Status = "Filled";
-        else if (order.FilledQuantity > 0)
-            order.Status = "PartiallyFilled";
-
-        if (order.RemainingQuantity > 0)
-            _orderBookService.AddOrder(order);
-
-        version++;
-        var placedEvent = new DomainEvent
-        {
-            AggregateId = command.AccountId,
-            AggregateType = "Account",
-            EventType = "OrderPlaced",
-            AggregateVersion = version,
-            Payload = JsonSerializer.Serialize(new
-            {
-                OrderId = orderId,
-                command.Symbol,
-                command.Side,
-                command.Quantity,
-                command.Price,
-                ReservationAmount = reservationAmount
-            })
-        };
-        domainEvents.Add(placedEvent);
-
-        transactions.Add(new Transaction
-        {
-            Id = Guid.NewGuid(),
-            AccountId = command.AccountId,
-            OrderId = orderId,
-            Type = "OrderPlaced",
-            Amount = -reservationAmount,
-            EventId = placedEvent.Id,
-            OccurredAt = DateTime.UtcNow
-        });
-
-        account.LastEventVersion = version;
-        account.UpdatedAt = DateTime.UtcNow;
+        order.Status = order.RemainingQuantity == 0
+            ? "Filled"
+            : totalTraded > 0 ? "PartiallyFilled" : "Pending";
 
         _uow.Orders.Add(order);
-
-        foreach (var evt in domainEvents)
-            _uow.DomainEvents.Add(evt);
-
-        foreach (var txn in transactions)
-            _uow.Transactions.Add(txn);
-
         await _uow.SaveChangesAsync(cancellationToken);
 
-        if (matchResult.Trades.Count > 0)
-        {
-            await _mediator.Publish(
-                new TradeExecutedNotification(matchResult.Trades), cancellationToken);
-        }
-
-        await _mediator.Publish(
-            new OrderBookChangedNotification(command.Symbol), cancellationToken);
-
-        await _mediator.Publish(
-            new BalanceChangedNotification(
-                command.AccountId, account.Balance, account.ReservedBalance),
-            cancellationToken);
-
-        return orderId;
+        return new Outcome(order.Id, matchResult.Trades, touched.Values.ToList());
     }
+
+    private void Settle(Account account, Order order, Guid counterOrderId, Trade trade, string role)
+    {
+        var notional = trade.Quantity * trade.Price;
+        var isBuy = order.Side == "Buy";
+
+        AccountLedger.Append(_uow, account, "OrderMatched", order.Id,
+            balanceDelta: isBuy ? -notional : notional,
+            reservedDelta: isBuy ? -(trade.Quantity * order.Price) : 0m,
+            new
+            {
+                OrderId = order.Id,
+                CounterOrderId = counterOrderId,
+                Role = role,
+                order.Side,
+                trade.Price,
+                trade.Quantity
+            });
+    }
+
+    private sealed record Outcome(Guid OrderId, IReadOnlyList<Trade> Trades, IReadOnlyList<Account> TouchedAccounts);
 }

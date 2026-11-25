@@ -157,6 +157,50 @@ public class OrderBook
         }
     }
 
+    public void Add(Order order)
+    {
+        if (order.RemainingQuantity > 0)
+            AddToBook(order);
+    }
+
+    public bool TryRemoveOrder(Order order)
+    {
+        var book = order.Side.Equals("Buy", StringComparison.OrdinalIgnoreCase)
+            ? _bids
+            : _asks;
+
+        if (!book.TryGetValue(order.Price, out var queue) || queue.All(o => o.Id != order.Id))
+            return false;
+
+        RemoveOrder(order);
+        return true;
+    }
+
+    public OrderBook Clone()
+    {
+        var copy = new OrderBook(Symbol);
+        foreach (var level in _bids)
+            copy._bids[level.Key] = new Queue<Order>(level.Value.Select(CopyOrder));
+        foreach (var level in _asks)
+            copy._asks[level.Key] = new Queue<Order>(level.Value.Select(CopyOrder));
+        return copy;
+    }
+
+    private static Order CopyOrder(Order o) => new()
+    {
+        Id = o.Id,
+        AccountId = o.AccountId,
+        Symbol = o.Symbol,
+        Side = o.Side,
+        Price = o.Price,
+        Quantity = o.Quantity,
+        RemainingQuantity = o.RemainingQuantity,
+        FilledQuantity = o.FilledQuantity,
+        Status = o.Status,
+        CreatedAt = o.CreatedAt,
+        UpdatedAt = o.UpdatedAt
+    };
+
     private void AddToBook(Order order)
     {
         var book = order.Side.Equals("Buy", StringComparison.OrdinalIgnoreCase)

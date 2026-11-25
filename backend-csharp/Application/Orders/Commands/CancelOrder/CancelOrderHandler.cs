@@ -25,9 +25,9 @@
 
 namespace NexusEngine.Api.Application.Orders.Commands.CancelOrder;
 
-using System.Text.Json;
 using MediatR;
 using NexusEngine.Api.Application.Abstractions;
+using NexusEngine.Api.Application.Common;
 using NexusEngine.Api.Application.Orders.Notifications;
 using NexusEngine.Api.Domain.Entities;
 using NexusEngine.Application.Abstractions;
@@ -52,66 +52,55 @@ public class CancelOrderHandler : IRequestHandler<CancelOrderCommand, Unit>
         CancelOrderCommand command,
         CancellationToken cancellationToken)
     {
-        var order = await _uow.Orders.FindAsync([command.OrderId], cancellationToken)
-            ?? throw new KeyNotFoundException($"Order {command.OrderId} not found.");
+        Account account;
+        string symbol;
 
-        if (order.AccountId != command.AccountId)
-            throw new InvalidOperationException("Order does not belong to this account.");
-
-        if (order.Status != "Pending" && order.Status != "PartiallyFilled")
-            throw new InvalidOperationException(
-                "Only Pending or PartiallyFilled orders can be cancelled.");
-
-        var account = await _uow.Accounts.FindAsync([order.AccountId], cancellationToken)
-            ?? throw new KeyNotFoundException($"Account {order.AccountId} not found.");
-
-        var refundAmount = order.Side == "Buy"
-            ? order.RemainingQuantity * order.Price
-            : 0m;
-
-        _orderBookService.RemoveOrder(order);
-
-        account.ReservedBalance -= refundAmount;
-        account.UpdatedAt = DateTime.UtcNow;
-
-        order.Status = "Cancelled";
-        order.UpdatedAt = DateTime.UtcNow;
-
-        account.LastEventVersion++;
-
-        var domainEvent = new DomainEvent
+        using (await _orderBookService.AcquireAsync(cancellationToken))
         {
-            AggregateId      = command.AccountId,
-            AggregateType    = "Account",
-            EventType        = "OrderCancelled",
-            AggregateVersion = account.LastEventVersion,
-            Payload          = JsonSerializer.Serialize(new
+            var order = await _uow.Orders.FindAsync([command.OrderId], cancellationToken)
+                ?? throw new KeyNotFoundException($"Order {command.OrderId} not found.");
+
+            if (order.AccountId != command.AccountId)
+                throw new InvalidOperationException("Order does not belong to this account.");
+
+            if (order.Status != "Pending" && order.Status != "PartiallyFilled")
+                throw new InvalidOperationException(
+                    "Only Pending or PartiallyFilled orders can be cancelled.");
+
+            account = await _uow.Accounts.FindAsync([order.AccountId], cancellationToken)
+                ?? throw new KeyNotFoundException($"Account {order.AccountId} not found.");
+
+            symbol = order.Symbol;
+            var refundAmount = order.Side == "Buy"
+                ? order.RemainingQuantity * order.Price
+                : 0m;
+
+            order.Status = "Cancelled";
+            order.UpdatedAt = DateTime.UtcNow;
+
+            AccountLedger.Append(_uow, account, "OrderCancelled", order.Id,
+                balanceDelta: 0m, reservedDelta: -refundAmount,
+                new { OrderId = order.Id, RefundAmount = refundAmount });
+
+            var checkpoint = _orderBookService.Checkpoint(symbol);
+            _orderBookService.RemoveOrder(order);
+
+            try
             {
-                OrderId      = command.OrderId,
-                RefundAmount = refundAmount
-            })
-        };
+                await _uow.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                _orderBookService.Restore(checkpoint);
+                _uow.DiscardChanges();
+                throw;
+            }
+        }
 
-        _uow.Transactions.Add(new Transaction
-        {
-            Id         = Guid.NewGuid(),
-            AccountId  = command.AccountId,
-            OrderId    = command.OrderId,
-            Type       = "OrderCancelled",
-            Amount     = refundAmount,
-            EventId    = domainEvent.Id,
-            OccurredAt = DateTime.UtcNow
-        });
-
-        _uow.DomainEvents.Add(domainEvent);
-        await _uow.SaveChangesAsync(cancellationToken);
+        await _mediator.Publish(new OrderBookChangedNotification(symbol), cancellationToken);
 
         await _mediator.Publish(
-            new OrderBookChangedNotification(order.Symbol), cancellationToken);
-
-        await _mediator.Publish(
-            new BalanceChangedNotification(
-                command.AccountId, account.Balance, account.ReservedBalance),
+            new BalanceChangedNotification(account.Id, account.Balance, account.ReservedBalance),
             cancellationToken);
 
         return Unit.Value;
